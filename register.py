@@ -1,7 +1,10 @@
+import base64
 import json
 import logging
 import re
+import secrets
 import time
+import urllib.parse
 import uuid
 
 from curl_cffi.requests import AsyncSession
@@ -9,6 +12,7 @@ from curl_cffi.requests import AsyncSession
 from exceptions import RegionBlockedError, RegistrationError, SentinelError
 from models import ProxyConfig
 import oauth
+import sentinel_pow
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +21,47 @@ SENTINEL_URL = "https://sentinel.openai.com/backend-api/sentinel/req"
 SENTINEL_REFERER = (
     "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6"
 )
+
+BROWSER_PROFILES = [
+    "edge99",
+    "edge101",
+    "chrome99",
+    "chrome100",
+    "chrome101",
+    "chrome104",
+    "chrome107",
+    "chrome110",
+    "chrome116",
+    "chrome119",
+    "chrome120",
+    "chrome123",
+    "chrome124",
+    "chrome131",
+    "chrome133a",
+    "chrome136",
+    "chrome142",
+    "safari153",
+    "safari155",
+    "safari170",
+    "safari180",
+    "safari184",
+    "safari260",
+    "safari2601",
+    "firefox133",
+    "firefox135",
+    "firefox144",
+    "safari15_3",
+    "safari15_5",
+    "safari17_0",
+    "safari17_2_ios",
+    "safari18_0",
+]
+
+
+def _pick_browser() -> str:
+    profile = secrets.choice(BROWSER_PROFILES)
+    log.info("  Browser fingerprint: %s", profile)
+    return profile
 
 
 def _log_response(resp: object, elapsed: float, label: str) -> None:
@@ -45,10 +90,15 @@ async def _check_region(session: AsyncSession) -> str:
     return loc
 
 
-async def _get_sentinel_token(session: AsyncSession, device_id: str, flow: str) -> str:
+async def _get_sentinel_token(
+    session: AsyncSession, device_id: str, flow: str, tz_name: str = "random"
+) -> str:
     log.debug("  Fetching sentinel token (flow=%s)...", flow)
+    user_agent = session.headers.get("User-Agent") or "Mozilla/5.0"
+    pow_token = sentinel_pow.build_token(str(user_agent), tz_name=tz_name)
+    log.debug("  PoW token generated: %s...%s", pow_token[:20], pow_token[-6:])
     start = time.monotonic()
-    body = json.dumps({"p": "", "id": device_id, "flow": flow})
+    body = json.dumps({"p": pow_token, "id": device_id, "flow": flow})
     resp = await session.post(
         SENTINEL_URL,
         headers={
@@ -94,10 +144,12 @@ def _build_sentinel_header(sentinel_token: str, device_id: str, flow: str) -> st
 
 async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
     proxies = proxy.as_proxy_spec()
+    browser_profile = _pick_browser()
     log.info("Starting registration for %s", email)
 
-    async with AsyncSession(proxies=proxies, impersonate="edge101") as session:
-        await _check_region(session)
+    async with AsyncSession(proxies=proxies, impersonate=browser_profile) as session:
+        region = await _check_region(session)
+        tz_name = sentinel_pow.tz_from_country(region)
 
         device_id = str(uuid.uuid4())
         auth_session_id = str(uuid.uuid4())
@@ -157,10 +209,10 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
         log.info("[4/8] Fetching sentinel tokens...")
         start = time.monotonic()
         sentinel_token = await _get_sentinel_token(
-            session, device_id, "authorize_continue"
+            session, device_id, "authorize_continue", tz_name=tz_name
         )
         so_token_raw = await _get_sentinel_token(
-            session, device_id, "oauth_create_account"
+            session, device_id, "oauth_create_account", tz_name=tz_name
         )
         elapsed = time.monotonic() - start
         log.info("  Both sentinel tokens acquired  |  %.1fs", elapsed)
@@ -172,12 +224,47 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
             so_token_raw, device_id, "oauth_create_account"
         )
 
+        log.info("[5/8] Submitting email via authorize/continue...")
+        start = time.monotonic()
+        signup_resp = await session.post(
+            "https://auth.openai.com/api/accounts/authorize/continue",
+            headers={
+                "referer": "https://auth.openai.com/create-account",
+                "accept": "application/json",
+                "content-type": "application/json",
+                "openai-sentinel-token": sentinel_header,
+            },
+            data=json.dumps(
+                {"username": {"value": email, "kind": "email"}, "screen_hint": "signup"}
+            ),
+            timeout=15,
+        )
+        elapsed = time.monotonic() - start
+        _log_response(signup_resp, elapsed, "authorize/continue")
+        if signup_resp.status_code != 200:
+            raise RegistrationError(
+                f"authorize/continue failed: HTTP {signup_resp.status_code}: {signup_resp.text[:200]}"
+            )
+
+        signup_data = signup_resp.json()
+        page_type = ""
+        if isinstance(signup_data, dict):
+            page_info = signup_data.get("page")
+            if isinstance(page_info, dict):
+                page_type = str(page_info.get("type") or "")
+        log.info("  Page type: %s", page_type)
+
+        is_existing = page_type == "email_otp_verification"
+
         password = input("\n  Enter password: ").strip()
         if not password:
             raise RegistrationError("No password provided")
 
         if is_existing:
-            log.info("[5/8] Existing account — verifying password...")
+            log.info("[6/8] Existing account — OTP already sent, waiting...")
+            skip_otp = False
+        elif page_type == "login_password":
+            log.info("[6/8] Existing account — verifying password...")
             start = time.monotonic()
             resp = await session.post(
                 "https://auth.openai.com/api/accounts/password/verify",
@@ -196,18 +283,29 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
                     f"Password verify failed: HTTP {resp.status_code}: {resp.text[:200]}"
                 )
             resp_data = resp.json()
-            continue_url = ""
+            verify_page_type = ""
             if isinstance(resp_data, dict):
+                vp = resp_data.get("page")
+                if isinstance(vp, dict):
+                    verify_page_type = str(vp.get("type") or "")
                 continue_url = str(resp_data.get("continue_url") or "").strip()
-            if continue_url:
-                log.info("  Following continue_url: %s", continue_url)
-                start = time.monotonic()
-                follow_resp = await session.get(continue_url, timeout=15)
-                elapsed = time.monotonic() - start
-                _log_response(follow_resp, elapsed, "Verify continue")
-            skip_otp = "about-you" in continue_url
+                if (
+                    continue_url
+                    and "about-you" not in continue_url
+                    and "email" not in continue_url
+                ):
+                    log.info("  Following continue_url: %s", continue_url)
+                    start = time.monotonic()
+                    follow_resp = await session.get(continue_url, timeout=15)
+                    elapsed = time.monotonic() - start
+                    _log_response(follow_resp, elapsed, "Verify continue")
+
+            if verify_page_type == "email_otp_verification":
+                skip_otp = False
+            else:
+                skip_otp = "about-you" in str(resp_data.get("continue_url") or "")
         else:
-            log.info("[5/8] Registering with password...")
+            log.info("[6/8] New account — registering with password...")
             start = time.monotonic()
             resp = await session.post(
                 "https://auth.openai.com/api/accounts/user/register",
@@ -385,8 +483,12 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
                                 org.get("role"),
                             )
 
-        cookies = dict(session.cookies.items())
+        cookies: dict[str, str] = {}
+        for cookie in session.cookies.jar:
+            key = f"{cookie.name}@{cookie.domain}"
+            cookies[key] = cookie.value
         result["cookies"] = cookies
+        result["browser_profile"] = browser_profile
 
         run_flow = input("\n  Run post-registration setup flow? (Y/n): ").strip()
         if run_flow.lower() not in ("n", "no"):
@@ -557,9 +659,13 @@ async def get_user_segments(session: AsyncSession) -> dict[str, object]:
 async def mark_announcement_viewed(
     session: AsyncSession, announcement_id: str
 ) -> dict[str, object]:
+    clean_id = announcement_id.encode("ascii", errors="ignore").decode("ascii").strip()
+    if not clean_id:
+        return {}
+    encoded_id = urllib.parse.quote(clean_id, safe="")
     start = time.monotonic()
     resp = await session.post(
-        f"https://chatgpt.com/backend-api/settings/announcement_viewed?announcement_id={announcement_id}",
+        f"https://chatgpt.com/backend-api/settings/announcement_viewed?announcement_id={encoded_id}",
         headers={
             "accept": "application/json",
             "content-type": "application/json",
@@ -649,6 +755,22 @@ async def register_flow(session: AsyncSession) -> dict[str, object]:
     log.info("Running post-registration setup flow...")
     results: dict[str, object] = {}
 
+    if not session.headers.get("Authorization"):
+        log.info("  Fetching access token from auth/session...")
+        start = time.monotonic()
+        auth_session_resp = await session.get(
+            "https://chatgpt.com/api/auth/session",
+            timeout=15,
+        )
+        elapsed = time.monotonic() - start
+        _log_response(auth_session_resp, elapsed, "auth/session")
+        auth_data = auth_session_resp.json()
+        if isinstance(auth_data, dict):
+            access_token = str(auth_data.get("accessToken") or "").strip()
+            if access_token:
+                session.headers.update({"Authorization": f"Bearer {access_token}"})
+                log.info("  Access token set")
+
     results["consent_get"] = await get_granular_consent(session)
     results["user_settings"] = await get_user_settings(session)
     results["user_segments"] = await get_user_segments(session)
@@ -665,3 +787,235 @@ async def register_flow(session: AsyncSession) -> dict[str, object]:
 
     log.info("Post-registration setup flow complete")
     return results
+
+
+async def codex_oauth(session: AsyncSession) -> dict[str, object]:
+    log.info("Starting Codex OAuth token exchange...")
+
+    oauth_start = oauth.generate_oauth_url()
+
+    log.info("  [1] OAuth authorize...")
+    start = time.monotonic()
+    auth_resp = await session.get(oauth_start.auth_url, timeout=15)
+    elapsed = time.monotonic() - start
+    _log_response(auth_resp, elapsed, "OAuth authorize")
+
+    device_id = session.cookies.get("oai-did", domain="auth.openai.com") or str(
+        uuid.uuid4()
+    )
+    log.info("  Device ID: %s", device_id)
+
+    log.info("  [2] Sentinel PoW...")
+    sentinel_token = await _get_sentinel_token(session, device_id, "authorize_continue")
+    sentinel_header = _build_sentinel_header(
+        sentinel_token, device_id, "authorize_continue"
+    )
+
+    final_url = str(auth_resp.url)
+    log.info("  Landed on: %s", final_url[:120])
+
+    if "log-in" in final_url or "create-account" in final_url:
+        log.info("  [3] Submitting email via authorize/continue...")
+        email = input("\n  Email: ").strip()
+        if not email:
+            log.error("  Email required")
+            return {}
+
+        start = time.monotonic()
+        signup_resp = await session.post(
+            "https://auth.openai.com/api/accounts/authorize/continue",
+            headers={
+                "referer": "https://auth.openai.com/create-account",
+                "accept": "application/json",
+                "content-type": "application/json",
+                "openai-sentinel-token": sentinel_header,
+            },
+            data=json.dumps(
+                {"username": {"value": email, "kind": "email"}, "screen_hint": "login"}
+            ),
+            timeout=15,
+        )
+        elapsed = time.monotonic() - start
+        _log_response(resp=signup_resp, elapsed=elapsed, label="authorize/continue")
+
+        signup_data = signup_resp.json() if isinstance(signup_resp.json(), dict) else {}
+        page_type = ""
+        if isinstance(signup_data, dict):
+            page_info = signup_data.get("page")
+            if isinstance(page_info, dict):
+                page_type = str(page_info.get("type") or "")
+        log.info("  Page type: %s", page_type)
+
+        if page_type == "login_password":
+            password = input("  Password: ").strip()
+            if not password:
+                log.error("  Password required")
+                return {}
+            start = time.monotonic()
+            pwd_resp = await session.post(
+                "https://auth.openai.com/api/accounts/password/verify",
+                headers={
+                    "referer": "https://auth.openai.com/log-in/password",
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                },
+                data=json.dumps({"password": password}),
+                timeout=15,
+            )
+            elapsed = time.monotonic() - start
+            _log_response(pwd_resp, elapsed, "Password verify")
+            if pwd_resp.status_code != 200:
+                log.error("  Password verify failed")
+                return {}
+
+            pwd_data = pwd_resp.json()
+            pwd_page_type = ""
+            if isinstance(pwd_data, dict):
+                pwd_page_info = pwd_data.get("page")
+                if isinstance(pwd_page_info, dict):
+                    pwd_page_type = str(pwd_page_info.get("type") or "")
+
+            if pwd_page_type == "email_otp_verification":
+                log.info("  Password verified, OTP required...")
+                otp = input("  OTP code: ").strip()
+                if not otp:
+                    log.error("  OTP required")
+                    return {}
+                start = time.monotonic()
+                otp_resp = await session.post(
+                    "https://auth.openai.com/api/accounts/email-otp/validate",
+                    headers={
+                        "referer": "https://auth.openai.com/email-verification",
+                        "accept": "application/json",
+                        "content-type": "application/json",
+                    },
+                    data=json.dumps({"code": otp}),
+                    timeout=15,
+                )
+                elapsed = time.monotonic() - start
+                _log_response(otp_resp, elapsed, "OTP validate")
+                if otp_resp.status_code != 200:
+                    log.error("  OTP validation failed")
+                    return {}
+
+        elif page_type == "email_otp_verification":
+            otp = input("  OTP code: ").strip()
+            if not otp:
+                log.error("  OTP required")
+                return {}
+            start = time.monotonic()
+            otp_resp = await session.post(
+                "https://auth.openai.com/api/accounts/email-otp/validate",
+                headers={
+                    "referer": "https://auth.openai.com/email-verification",
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                },
+                data=json.dumps({"code": otp}),
+                timeout=15,
+            )
+            elapsed = time.monotonic() - start
+            _log_response(otp_resp, elapsed, "OTP validate")
+            if otp_resp.status_code != 200:
+                log.error("  OTP validation failed")
+                return {}
+
+    log.info("  [4] Workspace select + token exchange...")
+    auth_cookie = (
+        session.cookies.get("oai-client-auth-session", domain="auth.openai.com") or ""
+    )
+    if not auth_cookie:
+        log.error("  Missing oai-client-auth-session cookie")
+        return {}
+
+    try:
+        cookie_b64 = auth_cookie.split(".")[0]
+        padding = "=" * ((4 - len(cookie_b64) % 4) % 4)
+        cookie_data = json.loads(base64.b64decode(cookie_b64 + padding))
+        workspaces = cookie_data.get("workspaces", [])
+        workspace_id = workspaces[0]["id"] if workspaces else None
+    except Exception as exc:
+        log.error("  Workspace parsing failed: %s", exc)
+        return {}
+
+    if not workspace_id:
+        log.error("  No workspace_id found")
+        return {}
+
+    log.info("  Workspace ID: %s", workspace_id)
+    start = time.monotonic()
+    select_resp = await session.post(
+        "https://auth.openai.com/api/accounts/workspace/select",
+        headers={
+            "referer": "https://auth.openai.com/sign-in-with-chatgpt/codex/consent",
+            "content-type": "application/json",
+        },
+        data=json.dumps({"workspace_id": workspace_id}),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(select_resp, elapsed, "Workspace select")
+    if select_resp.status_code != 200:
+        log.error("  Workspace select failed")
+        return {}
+
+    select_data = select_resp.json()
+    continue_url = ""
+    if isinstance(select_data, dict):
+        continue_url = str(select_data.get("continue_url") or "").strip()
+    if not continue_url:
+        log.error("  Missing continue_url")
+        return {}
+
+    log.info("  [5] Following redirects for callback...")
+    current_url = continue_url
+    for hop in range(12):
+        start = time.monotonic()
+        resp = await session.get(current_url, allow_redirects=False, timeout=15)
+        elapsed = time.monotonic() - start
+        location = resp.headers.get("Location") or ""
+        log.info(
+            "  Hop %d: HTTP %d → %s",
+            hop + 1,
+            resp.status_code,
+            location[:120] if location else "(end)",
+        )
+
+        if not location or resp.status_code not in (301, 302, 303, 307, 308):
+            break
+
+        if "localhost" in location and "/auth/callback" in location:
+            log.info("  Callback captured at hop %d", hop + 1)
+            token_config = await oauth.exchange_code_for_token(
+                session,
+                callback_url=location,
+                expected_state=oauth_start.state,
+                code_verifier=oauth_start.code_verifier,
+                redirect_uri=oauth_start.redirect_uri,
+            )
+            now = int(time.time())
+            result: dict[str, object] = {
+                "email": token_config.email,
+                "type": "codex",
+                "access_token": token_config.access_token,
+                "refresh_token": token_config.refresh_token,
+                "id_token": token_config.id_token,
+                "account_id": token_config.account_id,
+                "expires_in": token_config.expires_in,
+                "expires_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime(now + max(token_config.expires_in, 0)),
+                ),
+                "token_json": token_config.to_json(),
+            }
+            log.info(
+                "  Codex OAuth complete  |  email=%s  |  account_id=%s",
+                token_config.email,
+                token_config.account_id,
+            )
+            return result
+
+        current_url = location
+
+    log.error("  Failed to capture callback URL")
+    return {}
