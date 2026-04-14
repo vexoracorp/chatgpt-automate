@@ -385,4 +385,283 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
                                 org.get("role"),
                             )
 
+        cookies = dict(session.cookies.items())
+        result["cookies"] = cookies
+
+        run_flow = input("\n  Run post-registration setup flow? (Y/n): ").strip()
+        if run_flow.lower() not in ("n", "no"):
+            result["register_flow"] = await register_flow(session)
+
         return result
+
+
+async def get_notification_settings(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/notifications/settings",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "notifications/settings")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_age_settings(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/settings/is_adult",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "settings/is_adult")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_granular_consent(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/user_granular_consent",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "user_granular_consent")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def set_granular_consent(
+    session: AsyncSession, *, analytics: bool = True, marketing: bool = True
+) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.post(
+        "https://chatgpt.com/backend-api/user_granular_consent",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        data=json.dumps(
+            {"granular_consent": {"analytics": analytics, "marketing": marketing}}
+        ),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "POST user_granular_consent")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_me(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/me",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "backend-api/me")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_account_info(
+    session: AsyncSession, timezone_offset_min: int = -540
+) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        f"https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min={timezone_offset_min}",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "accounts/check")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_codex_quota(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/wham/usage",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "wham/usage")
+    data = resp.json()
+    if not isinstance(data, dict):
+        return {}
+
+    _log_quota_summary(data)
+    return data
+
+
+def _log_quota_summary(data: dict[str, object]) -> None:
+    email = data.get("email") or "unknown"
+    plan = data.get("plan_type") or "unknown"
+    log.info("  Codex quota for %s (%s plan)", email, plan)
+
+    rate_limit = data.get("rate_limit")
+    if isinstance(rate_limit, dict):
+        allowed = rate_limit.get("allowed")
+        reached = rate_limit.get("limit_reached")
+        log.info("  Rate limit: allowed=%s  reached=%s", allowed, reached)
+
+        primary = rate_limit.get("primary_window")
+        if isinstance(primary, dict):
+            used = primary.get("used_percent", 0)
+            reset = primary.get("reset_after_seconds", 0)
+            reset_h = int(reset) // 3600 if isinstance(reset, (int, float)) else 0
+            log.info("  Weekly limit: %s%% used  |  resets in %dh", used, reset_h)
+
+        secondary = rate_limit.get("secondary_window")
+        if isinstance(secondary, dict):
+            used = secondary.get("used_percent", 0)
+            reset = secondary.get("reset_after_seconds", 0)
+            reset_m = int(reset) // 60 if isinstance(reset, (int, float)) else 0
+            log.info("  5-hour limit: %s%% used  |  resets in %dm", used, reset_m)
+
+    credits_info = data.get("credits")
+    if isinstance(credits_info, dict):
+        has = credits_info.get("has_credits")
+        unlimited = credits_info.get("unlimited")
+        log.info("  Credits: has=%s  unlimited=%s", has, unlimited)
+
+    promo = data.get("promo")
+    if isinstance(promo, dict) and promo.get("message"):
+        log.info("  Promo: %s", promo["message"])
+
+
+async def get_user_settings(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/settings/user",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "settings/user")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def get_user_segments(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.get(
+        "https://chatgpt.com/backend-api/user_segments",
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "user_segments")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def mark_announcement_viewed(
+    session: AsyncSession, announcement_id: str
+) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.post(
+        f"https://chatgpt.com/backend-api/settings/announcement_viewed?announcement_id={announcement_id}",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, f"announcement_viewed ({announcement_id})")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def set_onboarding_interests(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.post(
+        "https://chatgpt.com/backend-api/onboarding/interests/profile",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        data=json.dumps({"main_usages": [], "interests": []}),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "onboarding/interests/profile")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def init_conversation(
+    session: AsyncSession, timezone_offset_min: int = -540
+) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.post(
+        "https://chatgpt.com/backend-api/conversation/init",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        data=json.dumps(
+            {
+                "gizmo_id": None,
+                "requested_default_model": None,
+                "conversation_id": None,
+                "timezone_offset_min": timezone_offset_min,
+            }
+        ),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "conversation/init")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def list_connectors(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    resp = await session.post(
+        "https://chatgpt.com/backend-api/aip/connectors/list_accessible?skip_actions=true&external_logos=true",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        data=json.dumps({"principals": []}),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(resp, elapsed, "connectors/list_accessible")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+ANNOUNCEMENT_IDS = [
+    "oai/apps/hasSeenPioneer",
+    "oai/apps/hasSeenSeeker",
+    "oai/apps/hasSeenMaverick",
+    "oai/apps/hasSeenMaverickCapi",
+    "oai/apps/hasSeenTrailBlazer",
+    "oai/apps/hasSeenStratos",
+    "oai/apps/hasSeenWayfinder",
+    "oai/apps/hasSeenOnboardingFlow",
+    "oai/apps/hasSeenOnboarding",
+]
+
+
+async def register_flow(session: AsyncSession) -> dict[str, object]:
+    log.info("Running post-registration setup flow...")
+    results: dict[str, object] = {}
+
+    results["consent_get"] = await get_granular_consent(session)
+    results["user_settings"] = await get_user_settings(session)
+    results["user_segments"] = await get_user_segments(session)
+
+    results["consent_set"] = await set_granular_consent(session)
+
+    for aid in ANNOUNCEMENT_IDS:
+        await mark_announcement_viewed(session, aid)
+    log.info("  Marked %d announcements as viewed", len(ANNOUNCEMENT_IDS))
+
+    results["onboarding"] = await set_onboarding_interests(session)
+    results["conv_init"] = await init_conversation(session)
+    results["connectors"] = await list_connectors(session)
+
+    log.info("Post-registration setup flow complete")
+    return results
