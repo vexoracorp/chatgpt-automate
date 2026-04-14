@@ -40,6 +40,7 @@ FUNCTIONS = {
     "conv_init": register.init_conversation,
     "connectors": register.list_connectors,
     "register_flow": register.register_flow,
+    "codex_oauth": register.codex_oauth,
 }
 
 FUNCTIONS_WITH_ARGS = {
@@ -104,9 +105,15 @@ async def _run(session_path: str, proxy_url: str | None) -> None:
         print(f"  {RED}No accessToken found in session file{RESET}")
         return
 
+    browser_profile = str(session_data.get("browser_profile") or "")
+    if not browser_profile:
+        from register import _pick_browser
+
+        browser_profile = _pick_browser()
+
     proxies = ProxyConfig(url=proxy_url).as_proxy_spec()
 
-    async with AsyncSession(proxies=proxies, impersonate="edge101") as session:
+    async with AsyncSession(proxies=proxies, impersonate=browser_profile) as session:
         session.headers.update(
             {
                 "Authorization": f"Bearer {access_token}",
@@ -115,8 +122,12 @@ async def _run(session_path: str, proxy_url: str | None) -> None:
 
         cookies = session_data.get("cookies")
         if isinstance(cookies, dict):
-            for name, value in cookies.items():
-                session.cookies.set(str(name), str(value))
+            for key, value in cookies.items():
+                if "@" in str(key):
+                    name, domain = str(key).rsplit("@", 1)
+                    session.cookies.set(name, str(value), domain=domain)
+                else:
+                    session.cookies.set(str(key), str(value))
 
         func_names = list(FUNCTIONS.keys())
         while True:
