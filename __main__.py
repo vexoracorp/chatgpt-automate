@@ -75,15 +75,18 @@ async def _run_once(proxy: ProxyConfig, email: str) -> bool:
 
     start = time.monotonic()
     try:
-        me_data = await register.run(proxy, email)
+        result = await register.run(proxy, email)
 
+        session_info = result.get("session") if isinstance(result, dict) else {}
         user_email = (
-            str(me_data.get("email") or email) if isinstance(me_data, dict) else email
+            str((session_info or {}).get("user", {}).get("email") or email)
+            if isinstance(session_info, dict)
+            else email
         )
         email_slug = user_email.replace("@", "_")
         filename = f"account_{email_slug}_{int(time.time())}.json"
         Path(filename).write_text(
-            json.dumps(me_data, indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
         elapsed = time.monotonic() - start

@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import re
@@ -340,29 +339,29 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
             elapsed = time.monotonic() - start
             _log_response(otp_send_resp, elapsed, "OTP send")
 
-            otp = input("\n  Enter OTP code from email: ").strip()
-            if not otp:
-                raise RegistrationError("No OTP code provided")
-            log.info("  OTP received: %s", otp)
+            while True:
+                otp = input("\n  Enter OTP code from email: ").strip()
+                if not otp:
+                    raise RegistrationError("No OTP code provided")
+                log.info("  OTP received: %s", otp)
 
-            log.info("  Validating OTP...")
-            start = time.monotonic()
-            otp_resp = await session.post(
-                "https://auth.openai.com/api/accounts/email-otp/validate",
-                headers={
-                    "referer": "https://auth.openai.com/email-verification",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
-                data=json.dumps({"code": otp}),
-                timeout=15,
-            )
-            elapsed = time.monotonic() - start
-            _log_response(otp_resp, elapsed, "OTP validate")
-            if otp_resp.status_code != 200:
-                raise RegistrationError(
-                    f"OTP validation failed: HTTP {otp_resp.status_code}: {otp_resp.text[:200]}"
+                log.info("  Validating OTP...")
+                start = time.monotonic()
+                otp_resp = await session.post(
+                    "https://auth.openai.com/api/accounts/email-otp/validate",
+                    headers={
+                        "referer": "https://auth.openai.com/email-verification",
+                        "accept": "application/json",
+                        "content-type": "application/json",
+                    },
+                    data=json.dumps({"code": otp}),
+                    timeout=15,
                 )
+                elapsed = time.monotonic() - start
+                _log_response(otp_resp, elapsed, "OTP validate")
+                if otp_resp.status_code == 200:
+                    break
+                log.warning("  Wrong OTP code, try again")
         else:
             log.info("  OTP skipped — email already verified")
 
@@ -454,34 +453,11 @@ async def run(proxy: ProxyConfig, email: str) -> dict[str, object]:
         elapsed = time.monotonic() - start
         _log_response(session_resp, elapsed, "auth/session")
 
-        start = time.monotonic()
-        me_resp = await session.get(
-            "https://chatgpt.com/backend-api/me",
-            timeout=15,
-        )
-        elapsed = time.monotonic() - start
-        _log_response(me_resp, elapsed, "backend-api/me")
-
         session_data = session_resp.json()
-        me_data = me_resp.json()
 
         result: dict[str, object] = {}
         if isinstance(session_data, dict):
             result["session"] = session_data
-        if isinstance(me_data, dict):
-            result["me"] = me_data
-            orgs = me_data.get("orgs")
-            if isinstance(orgs, dict):
-                org_list = orgs.get("data") or []
-                if isinstance(org_list, list):
-                    for org in org_list:
-                        if isinstance(org, dict):
-                            log.info(
-                                "  Org: id=%s  title=%s  role=%s",
-                                org.get("id"),
-                                org.get("title"),
-                                org.get("role"),
-                            )
 
         cookies: dict[str, str] = {}
         for cookie in session.cookies.jar:
@@ -790,6 +766,138 @@ async def register_flow(session: AsyncSession) -> dict[str, object]:
 
 
 async def codex_oauth(session: AsyncSession) -> dict[str, object]:
+    start = time.monotonic()
+    log.info("Starting Codex OAuth token exchange...")
+
+    session_token = (
+        session.cookies.get("__Secure-next-auth.session-token", domain=".chatgpt.com")
+        or ""
+    )
+    if session_token:
+        log.info("  Copying session token to auth.openai.com domain...")
+        session.cookies.set(
+            "__Secure-next-auth.session-token", session_token, domain=".auth.openai.com"
+        )
+
+    oauth_start = oauth.generate_oauth_url()
+
+    log.info("  [1] OAuth authorize (establishing auth session)...")
+    start = time.monotonic()
+    auth_resp = await session.get(oauth_start.auth_url, timeout=15)
+    elapsed = time.monotonic() - start
+    _log_response(auth_resp, elapsed, "OAuth authorize")
+
+    auth_cookie = session.cookies.get("oai-client-auth-session") or ""
+    workspace_id = None
+    if auth_cookie:
+        cookie_data = oauth.decode_jwt_header(auth_cookie)
+        workspaces = cookie_data.get("workspaces")
+        if isinstance(workspaces, list) and workspaces:
+            first = workspaces[0]
+            if isinstance(first, dict) and "id" in first:
+                workspace_id = str(first["id"])
+
+    if not workspace_id:
+        log.info("  Workspace not in cookie, fetching from accounts/check...")
+        account_data = await get_account_info(session, -540)
+        account_id_list = account_data.get("account_ordering")
+        if isinstance(account_id_list, list) and account_id_list:
+            workspace_id = str(account_id_list[0])
+            log.info("  Workspace ID (from account): %s", workspace_id)
+        else:
+            log.error("  Cannot find workspace/account ID")
+            return {}
+    else:
+        log.info("  Workspace ID: %s", workspace_id)
+
+    log.info("  Selecting workspace...")
+    start = time.monotonic()
+    select_resp = await session.post(
+        "https://auth.openai.com/api/accounts/workspace/select",
+        headers={
+            "referer": "https://auth.openai.com/sign-in-with-chatgpt/codex/consent",
+            "content-type": "application/json",
+        },
+        data=json.dumps({"workspace_id": workspace_id}),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - start
+    _log_response(select_resp, elapsed, "Workspace select")
+    if select_resp.status_code != 200:
+        log.error("  Workspace select failed: HTTP %d", select_resp.status_code)
+        return {}
+
+    content_type = str(select_resp.headers.get("content-type") or "")
+    if "application/json" not in content_type:
+        log.error("  Workspace select returned non-JSON (got %s)", content_type)
+        log.error("  Full response:\n%s", select_resp.text)
+        return {}
+
+    try:
+        select_data = select_resp.json()
+    except Exception:
+        log.error("  Failed to parse workspace select response")
+        return {}
+    continue_url = ""
+    if isinstance(select_data, dict):
+        continue_url = str(select_data.get("continue_url") or "").strip()
+    if not continue_url:
+        log.error("  Missing continue_url from workspace select")
+        return {}
+
+    log.info("  Following redirects for callback...")
+    current_url = continue_url
+    for hop in range(12):
+        resp = await session.get(current_url, allow_redirects=False, timeout=15)
+        location = resp.headers.get("Location") or ""
+        log.info(
+            "  Hop %d: HTTP %d → %s",
+            hop + 1,
+            resp.status_code,
+            location[:120] if location else "(end)",
+        )
+
+        if not location or resp.status_code not in (301, 302, 303, 307, 308):
+            break
+
+        if "localhost" in location and "/auth/callback" in location:
+            log.info("  Callback captured at hop %d", hop + 1)
+            token_config = await oauth.exchange_code_for_token(
+                session,
+                callback_url=location,
+                expected_state=oauth_start.state,
+                code_verifier=oauth_start.code_verifier,
+                redirect_uri=oauth_start.redirect_uri,
+            )
+            now = int(time.time())
+            result: dict[str, object] = {
+                "email": token_config.email,
+                "type": "codex",
+                "access_token": token_config.access_token,
+                "refresh_token": token_config.refresh_token,
+                "id_token": token_config.id_token,
+                "account_id": token_config.account_id,
+                "expires_in": token_config.expires_in,
+                "expires_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime(now + max(token_config.expires_in, 0)),
+                ),
+                "token_json": token_config.to_json(),
+            }
+            log.info(
+                "  Codex OAuth complete  |  email=%s  |  account_id=%s",
+                token_config.email,
+                token_config.account_id,
+            )
+            return result
+
+        current_url = location
+
+    log.error("  Failed to capture callback URL")
+    return {}
+
+
+async def __deprecated_codex_oauth(session: AsyncSession) -> dict[str, object]:
     log.info("Starting Codex OAuth token exchange...")
 
     oauth_start = oauth.generate_oauth_url()
@@ -877,6 +985,30 @@ async def codex_oauth(session: AsyncSession) -> dict[str, object]:
 
             if pwd_page_type == "email_otp_verification":
                 log.info("  Password verified, OTP required...")
+                while True:
+                    otp = input("  OTP code: ").strip()
+                    if not otp:
+                        log.error("  OTP required")
+                        return {}
+                    start = time.monotonic()
+                    otp_resp = await session.post(
+                        "https://auth.openai.com/api/accounts/email-otp/validate",
+                        headers={
+                            "referer": "https://auth.openai.com/email-verification",
+                            "accept": "application/json",
+                            "content-type": "application/json",
+                        },
+                        data=json.dumps({"code": otp}),
+                        timeout=15,
+                    )
+                    elapsed = time.monotonic() - start
+                    _log_response(otp_resp, elapsed, "OTP validate")
+                    if otp_resp.status_code == 200:
+                        break
+                    log.warning("  Wrong OTP code, try again")
+
+        elif page_type == "email_otp_verification":
+            while True:
                 otp = input("  OTP code: ").strip()
                 if not otp:
                     log.error("  OTP required")
@@ -894,31 +1026,9 @@ async def codex_oauth(session: AsyncSession) -> dict[str, object]:
                 )
                 elapsed = time.monotonic() - start
                 _log_response(otp_resp, elapsed, "OTP validate")
-                if otp_resp.status_code != 200:
-                    log.error("  OTP validation failed")
-                    return {}
-
-        elif page_type == "email_otp_verification":
-            otp = input("  OTP code: ").strip()
-            if not otp:
-                log.error("  OTP required")
-                return {}
-            start = time.monotonic()
-            otp_resp = await session.post(
-                "https://auth.openai.com/api/accounts/email-otp/validate",
-                headers={
-                    "referer": "https://auth.openai.com/email-verification",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
-                data=json.dumps({"code": otp}),
-                timeout=15,
-            )
-            elapsed = time.monotonic() - start
-            _log_response(otp_resp, elapsed, "OTP validate")
-            if otp_resp.status_code != 200:
-                log.error("  OTP validation failed")
-                return {}
+                if otp_resp.status_code == 200:
+                    break
+                log.warning("  Wrong OTP code, try again")
 
     log.info("  [4] Workspace select + token exchange...")
     auth_cookie = (
@@ -929,11 +1039,12 @@ async def codex_oauth(session: AsyncSession) -> dict[str, object]:
         return {}
 
     try:
-        cookie_b64 = auth_cookie.split(".")[0]
-        padding = "=" * ((4 - len(cookie_b64) % 4) % 4)
-        cookie_data = json.loads(base64.b64decode(cookie_b64 + padding))
-        workspaces = cookie_data.get("workspaces", [])
-        workspace_id = workspaces[0]["id"] if workspaces else None
+        cookie_data = oauth.decode_jwt_header(auth_cookie)
+        workspaces = cookie_data.get("workspaces")
+        if not isinstance(workspaces, list) or not workspaces:
+            raise ValueError("no workspaces")
+        first = workspaces[0]
+        workspace_id = first["id"] if isinstance(first, dict) else None
     except Exception as exc:
         log.error("  Workspace parsing failed: %s", exc)
         return {}
