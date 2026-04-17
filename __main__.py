@@ -8,7 +8,7 @@ from pathlib import Path
 
 from exceptions import AutomateError
 from models import ProxyConfig
-import register
+from register import RegistrationSession, register_flow
 
 log = logging.getLogger("automate")
 
@@ -68,6 +68,14 @@ def _prompt(label: str, *, default: str = "") -> str:
     return value or default
 
 
+async def console_otp_provider(email: str) -> str:
+    return await asyncio.to_thread(input, f"\n  Enter OTP code for {email}: ")
+
+
+async def console_password_provider() -> str:
+    return await asyncio.to_thread(input, "\n  Enter password: ")
+
+
 async def _run_once(proxy: ProxyConfig, email: str) -> bool:
     log.info(f"{BOLD}{MAGENTA}{'═' * 50}{RESET}")
     log.info(f"{BOLD}{MAGENTA}  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
@@ -75,7 +83,34 @@ async def _run_once(proxy: ProxyConfig, email: str) -> bool:
 
     start = time.monotonic()
     try:
-        result = await register.run(proxy, email)
+        async with await RegistrationSession.create(proxy=proxy) as reg:
+            await reg.check_region()
+            await reg.get_csrf()
+            await reg.signin(email)
+            await reg.submit_email()
+            await reg.set_password(console_password_provider)
+            await reg.verify_otp(console_otp_provider)
+
+            name = await asyncio.to_thread(input, "\n  Enter name (default: Neo): ")
+            name = name.strip() or "Neo"
+            birthdate = await asyncio.to_thread(
+                input, "  Enter birthdate YYYY-MM-DD (default: 2000-02-20): "
+            )
+            birthdate = birthdate.strip() or "2000-02-20"
+
+            await reg.create_account(name, birthdate)
+            session_data = await reg.establish_session()
+
+            result: dict[str, object] = {}
+            if session_data:
+                result["session"] = session_data
+            result["cookies"] = reg.cookies()
+
+            run_flow = await asyncio.to_thread(
+                input, "\n  Run post-registration setup flow? (Y/n): "
+            )
+            if run_flow.strip().lower() not in ("n", "no"):
+                result["register_flow"] = await register_flow(reg.inner_session)
 
         session_info = result.get("session") if isinstance(result, dict) else {}
         user_email = (

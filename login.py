@@ -4,7 +4,6 @@ import logging
 import secrets
 import sys
 import time
-import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -54,67 +53,105 @@ def _log_response(resp: object, elapsed: float, label: str) -> None:
     log.debug("  Body: %s", body)
 
 
-class CodexOAuthSession:
-    def __init__(
-        self,
-        session: AsyncSession,
-        authorize_url: str,
-    ) -> None:
+class LoginSession:
+    def __init__(self, session: AsyncSession) -> None:
         self._session = session
-        self._authorize_url = authorize_url
-
-        parsed = urllib.parse.urlparse(authorize_url)
-        qs = urllib.parse.parse_qs(parsed.query)
-        self.state = (qs.get("state") or [""])[0]
-        self.redirect_uri = (qs.get("redirect_uri") or [""])[0]
-
-        if not self.state:
-            raise OAuthError("authorize URL missing ?state=")
-
-        self._device_id = ""
-        self._user_agent = ""
-        self._page_type = ""
         self.email = ""
-        self.callback_url = ""
+        self._device_id = str(uuid.uuid4())
+        self._auth_session_id = str(uuid.uuid4())
+        self._csrf_token = ""
+        self._page_type = ""
+        self._user_agent = ""
 
     @classmethod
     async def create(
         cls,
-        authorize_url: str,
         *,
         impersonate: str = "",
         proxy: ProxyConfig | None = None,
-    ) -> "CodexOAuthSession":
+    ) -> "LoginSession":
         profile = impersonate or secrets.choice(BROWSER_PROFILES)
         log.info("  Browser fingerprint: %s", profile)
         proxies = proxy.as_proxy_spec() if proxy else None
         session = AsyncSession(proxies=proxies, impersonate=profile)
-        return cls(session, authorize_url)
+        return cls(session)
 
-    async def authorize(self) -> str:
-        log.info("Following authorize URL...")
-        log.info("  URL: %s", self._authorize_url[:120])
+    @property
+    def page_type(self) -> str:
+        return self._page_type
+
+    @property
+    def inner_session(self) -> AsyncSession:
+        return self._session
+
+    async def get_csrf(self) -> str:
+        log.info("Getting CSRF token...")
+        start = time.monotonic()
+        resp = await self._session.get("https://chatgpt.com/api/auth/csrf", timeout=15)
+        elapsed = time.monotonic() - start
+        _log_response(resp, elapsed, "CSRF")
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise OAuthError("CSRF response is not a dict")
+        self._csrf_token = str(data.get("csrfToken") or "").strip()
+        if not self._csrf_token:
+            raise OAuthError("CSRF token not found")
+        log.info("  CSRF token: %s...%s", self._csrf_token[:8], self._csrf_token[-4:])
+        return self._csrf_token
+
+    async def signin(self, email: str) -> str:
+        self.email = email
+        log.info("Signing in via chatgpt.com for %s...", email)
 
         start = time.monotonic()
-        resp = await self._session.get(self._authorize_url, timeout=15)
+        signin_resp = await self._session.post(
+            "https://chatgpt.com/api/auth/signin/openai",
+            params={
+                "prompt": "login",
+                "ext-oai-did": self._device_id,
+                "auth_session_logging_id": self._auth_session_id,
+                "ext-passkey-client-capabilities": "1111",
+                "screen_hint": "login",
+                "login_hint": email,
+            },
+            data=(
+                f"callbackUrl=https%3A%2F%2Fchatgpt.com%2F"
+                f"&csrfToken={self._csrf_token}&json=true"
+            ),
+            headers={
+                "content-type": "application/x-www-form-urlencoded",
+                "referer": "https://chatgpt.com/",
+            },
+            timeout=15,
+        )
         elapsed = time.monotonic() - start
-        _log_response(resp, elapsed, "OAuth authorize")
+        _log_response(signin_resp, elapsed, "Signin")
 
-        final_url = str(resp.url)
+        signin_data = signin_resp.json()
+        if not isinstance(signin_data, dict):
+            raise OAuthError("Signin response is not a dict")
+        authorize_url = str(signin_data.get("url") or "").strip()
+        if not authorize_url:
+            raise OAuthError("Signin response missing authorize URL")
+        log.info("  Authorize URL: %s", authorize_url[:120])
+
+        start = time.monotonic()
+        auth_resp = await self._session.get(authorize_url, timeout=15)
+        elapsed = time.monotonic() - start
+        _log_response(auth_resp, elapsed, "Authorize")
+        final_url = str(auth_resp.url)
         log.info("  Landed on: %s", final_url[:120])
 
-        if "log-in" not in final_url and "create-account" not in final_url:
-            raise OAuthError(f"Expected login/signup page, got: {final_url}")
-
-        self._device_id = self._session.cookies.get(
-            "oai-did", domain="auth.openai.com"
-        ) or str(uuid.uuid4())
         self._user_agent = self._session.headers.get("User-Agent") or "Mozilla/5.0"
-        log.info("  Device ID: %s", self._device_id)
         return final_url
 
     async def _get_sentinel_header(self, flow: str) -> str:
         pow_token = sentinel_pow.build_token(str(self._user_agent))
+
+        device_id = (
+            self._session.cookies.get("oai-did", domain="auth.openai.com")
+            or self._device_id
+        )
 
         start = time.monotonic()
         resp = await self._session.post(
@@ -128,7 +165,7 @@ class CodexOAuthSession:
             data=json.dumps(
                 {
                     "p": pow_token,
-                    "id": self._device_id,
+                    "id": device_id,
                     "flow": flow,
                 }
             ),
@@ -151,14 +188,13 @@ class CodexOAuthSession:
                 "p": pow_token,
                 "t": "",
                 "c": token,
-                "id": self._device_id,
+                "id": device_id,
                 "flow": flow,
             }
         )
 
-    async def submit_email(self, email: str) -> str:
-        self.email = email
-        log.info("Submitting email: %s", email)
+    async def submit_email(self) -> str:
+        log.info("Submitting email: %s", self.email)
 
         sentinel_header = await self._get_sentinel_header("authorize_continue")
 
@@ -172,7 +208,7 @@ class CodexOAuthSession:
                 "openai-sentinel-token": sentinel_header,
                 "traceparent": _traceparent(),
             },
-            data=json.dumps({"username": {"value": email, "kind": "email"}}),
+            data=json.dumps({"username": {"value": self.email, "kind": "email"}}),
             timeout=15,
         )
         elapsed = time.monotonic() - start
@@ -227,9 +263,10 @@ class CodexOAuthSession:
             return
 
         log.info(
-            "Waiting for OTP (timeout=%ds, max_attempts=%d)...", timeout, max_attempts
+            "Waiting for OTP (timeout=%ds, max_attempts=%d)...",
+            timeout,
+            max_attempts,
         )
-
         for attempt in range(1, max_attempts + 1):
             try:
                 otp = await asyncio.wait_for(otp_provider(self.email), timeout=timeout)
@@ -265,44 +302,9 @@ class CodexOAuthSession:
 
         raise OAuthError(f"OTP validation failed after {max_attempts} attempts")
 
-    async def select_workspace(self, workspace_id: str) -> None:
-        log.info("Selecting workspace: %s", workspace_id)
-
-        start = time.monotonic()
-        resp = await self._session.post(
-            "https://auth.openai.com/api/accounts/workspace/select",
-            headers={
-                "referer": "https://auth.openai.com/sign-in-with-chatgpt/codex/consent",
-                "content-type": "application/json",
-                "traceparent": _traceparent(),
-            },
-            data=json.dumps({"workspace_id": workspace_id}),
-            timeout=15,
-        )
-        elapsed = time.monotonic() - start
-        _log_response(resp, elapsed, "Workspace select")
-
-        if resp.status_code != 200:
-            raise OAuthError(
-                f"Workspace select failed: HTTP {resp.status_code}: {resp.text[:300]}"
-            )
-
-        content_type = str(resp.headers.get("content-type") or "")
-        if "application/json" not in content_type:
-            raise OAuthError(f"Workspace select returned non-JSON: {content_type}")
-
-        data = resp.json()
-        continue_url = ""
-        if isinstance(data, dict):
-            continue_url = str(data.get("continue_url") or "").strip()
-        if not continue_url:
-            raise OAuthError("Missing continue_url from workspace select")
-
-        self.callback_url = await self._follow_redirects(continue_url)
-
-    async def _follow_redirects(self, start_url: str) -> str:
-        log.info("Following redirect chain...")
-        current_url = start_url
+    async def establish_session(self) -> dict[str, object]:
+        log.info("Following auth redirect chain...")
+        current_url = "https://auth.openai.com/authorize/resume"
         for hop in range(12):
             resp = await self._session.get(
                 current_url, allow_redirects=False, timeout=15
@@ -318,14 +320,30 @@ class CodexOAuthSession:
             if not location or resp.status_code not in (301, 302, 303, 307, 308):
                 break
 
-            if "localhost" in location and "/auth/callback" in location:
-                log.info("  Callback captured at hop %d", hop + 1)
-                return location
+            if "api/auth/callback" in location:
+                log.info("  Callback found at hop %d, following...", hop + 1)
+                start = time.monotonic()
+                await self._session.get(location, timeout=30)
+                elapsed = time.monotonic() - start
+                log.info("  Callback complete  |  %.1fs", elapsed)
+                break
 
-            current_url = location
+            current_url = (
+                location
+                if location.startswith("http")
+                else f"https://chatgpt.com{location}"
+            )
 
-        log.warning("  Failed to capture callback URL")
-        return ""
+        log.info("Establishing ChatGPT session...")
+        start = time.monotonic()
+        resp = await self._session.get(
+            "https://chatgpt.com/api/auth/session",
+            timeout=15,
+        )
+        elapsed = time.monotonic() - start
+        _log_response(resp, elapsed, "auth/session")
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
 
     def cookies(self) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -337,7 +355,7 @@ class CodexOAuthSession:
     async def close(self) -> None:
         await self._session.close()
 
-    async def __aenter__(self) -> "CodexOAuthSession":
+    async def __aenter__(self) -> "LoginSession":
         return self
 
     async def __aexit__(self, *args: object) -> None:
@@ -394,17 +412,14 @@ def _setup_logging(*, verbose: bool = False) -> None:
 
 
 async def _main() -> None:
-    print(f"\n  {BOLD}Codex OAuth Flow{RESET}\n")
+    from pathlib import Path
+
+    print(f"\n  {BOLD}ChatGPT Login{RESET}\n")
 
     proxy_url = input("  Proxy URL (enter to skip): ").strip() or None
     email = input("  Email: ").strip()
     if not email:
         print(f"  {RED}Email is required.{RESET}")
-        return
-
-    authorize_url = input("  Codex OAuth URL: ").strip()
-    if not authorize_url:
-        print(f"  {RED}OAuth URL is required.{RESET}")
         return
 
     verbose_input = input("  Verbose logging? (y/N): ").strip()
@@ -417,28 +432,28 @@ async def _main() -> None:
     log.info("  %sEmail:%s    %s", DIM, RESET, email)
     log.info("")
 
-    async with await CodexOAuthSession.create(authorize_url, proxy=proxy) as session:
-        await session.authorize()
-        page_type = await session.submit_email(email)
+    async with await LoginSession.create(proxy=proxy) as session:
+        await session.get_csrf()
+        await session.signin(email)
+        await session.submit_email()
+        await session.verify_otp(console_otp_provider, timeout=300)
+        session_data = await session.establish_session()
 
-        if page_type in ("login_password", "email_otp_verification"):
-            await session.verify_otp(console_otp_provider, timeout=300)
+        result: dict[str, object] = {
+            "email": email,
+        }
+        if session_data:
+            result["session"] = session_data
+        result["cookies"] = session.cookies()
 
-        workspace_id = input("\n  Enter workspace ID: ").strip()
-        if not workspace_id:
-            print(f"  {RED}Workspace ID is required.{RESET}")
-            return
+        email_slug = email.replace("@", "_")
+        filename = f"login_{email_slug}_{int(time.time())}.json"
+        Path(filename).write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
-        await session.select_workspace(workspace_id)
-
-        if session.callback_url:
-            print(f"\n  {GREEN}{BOLD}✓ Callback URL captured{RESET}")
-            print(f"  {session.callback_url}")
-        else:
-            print(f"\n  {RED}Failed to capture callback URL{RESET}")
-
-        print(f"\n  {BOLD}Cookies:{RESET}")
-        print(json.dumps(session.cookies(), indent=2, ensure_ascii=False))
+        print(f"\n  {GREEN}{BOLD}✓ Login complete{RESET}")
+        print(f"  Saved to {filename}")
 
 
 def main() -> None:

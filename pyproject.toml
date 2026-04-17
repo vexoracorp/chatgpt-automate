@@ -4,5 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.14"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "curl-cffi>=0.15.0",
+    "tortoise-orm>=1.1.7",
 ]
