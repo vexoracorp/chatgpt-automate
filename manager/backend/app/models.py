@@ -133,6 +133,18 @@ class TOTPVerify(BaseModel):
     code: str
 
 
+class SharePolicy(BaseModel):
+    enabled: bool = True
+    max_hours: int = 720
+    allow_session: bool = True
+    allow_mailbox: bool = True
+    allowed_roles: list[str] = ["admin", "manager", "operator"]
+
+
+class AccessPolicy(BaseModel):
+    session_view_roles: list[str] = ["admin"]
+
+
 class OrgSettings(BaseModel):
     org_name: str = "ChatGPT Account Manager"
     allowed_ips: list[str] = []
@@ -141,6 +153,8 @@ class OrgSettings(BaseModel):
     allow_password_change: bool = True
     password_expiry_days: int = 0
     session_timeout_min: int = 0
+    share_policy: SharePolicy = SharePolicy()
+    access_policy: AccessPolicy = AccessPolicy()
 
 
 class ProxyCreate(BaseModel):

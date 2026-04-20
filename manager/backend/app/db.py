@@ -96,6 +96,20 @@ class Settings(models.Model):
     allow_password_change = fields.BooleanField(default=True)
     password_expiry_days = fields.IntField(default=0)
     session_timeout_min = fields.IntField(default=0)
+    share_policy = fields.JSONField(
+        default={
+            "enabled": True,
+            "max_hours": 720,
+            "allow_session": True,
+            "allow_mailbox": True,
+            "allowed_roles": ["admin", "manager", "operator"],
+        }
+    )
+    access_policy = fields.JSONField(
+        default={
+            "session_view_roles": ["admin"],
+        }
+    )
 
     class Meta:
         table = "settings"
@@ -137,3 +151,26 @@ class CdkProvider(models.Model):
 
     class Meta:
         table = "cdk_providers"
+
+
+class ShareToken(models.Model):
+    id = fields.CharField(max_length=32, primary_key=True)
+    account_id = fields.CharField(max_length=8)
+    created_by = fields.CharField(max_length=8, default="")
+    include_mailbox = fields.BooleanField(default=False)
+    include_session = fields.BooleanField(default=False)
+    expires_at = fields.CharField(max_length=50)
+    created_at = fields.CharField(max_length=50, default="")
+    revoked = fields.BooleanField(default=False)
+
+    class Meta:
+        table = "share_tokens"
+
+
+class Extension(models.Model):
+    id = fields.CharField(max_length=100, primary_key=True)
+    enabled = fields.BooleanField(default=False)
+    settings = fields.JSONField(default={})
+
+    class Meta:
+        table = "extensions"
