@@ -150,6 +150,27 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        try:
+            await conn.execute_query(
+                "CREATE TABLE IF NOT EXISTS extensions (id VARCHAR(100) PRIMARY KEY, enabled INTEGER DEFAULT 0, settings TEXT DEFAULT '{}')"
+            )
+        except Exception:
+            pass
+
+        for col, default in [
+            (
+                "share_policy",
+                '\'{"enabled":true,"max_hours":720,"allow_session":true,"allow_mailbox":true,"allowed_roles":["admin","manager","operator"]}\'',
+            ),
+            ("access_policy", '\'{"session_view_roles":["admin"]}\''),
+        ]:
+            try:
+                await conn.execute_query(
+                    f"ALTER TABLE settings ADD COLUMN {col} TEXT DEFAULT {default}"
+                )
+            except Exception:
+                pass
+
         from app.outlook_otp import configure
 
         cfg = await OutlookConfigDB.get_or_none(id=1)
@@ -157,14 +178,17 @@ async def lifespan(app: FastAPI):
             configure(cfg.tenant_id, cfg.client_id, cfg.client_secret)
 
         if not await User.exists():
-            await User.create(
-                id="admin",
-                email="admin@manager.local",
-                name="Admin",
-                role="owner",
-                password_hash=_hash_password("admin"),
-                created_at=_now(),
+            from app.models import UserCreate
+
+            await _create_user(
+                UserCreate(
+                    email="admin@local", name="Admin", role="admin", password="admin"
+                )
             )
+
+        from app.extensions import load_enabled_extensions
+
+        await load_enabled_extensions(app)
 
         yield
 
@@ -282,7 +306,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if request.method == "OPTIONS":
             return await call_next(request)
-        if not path.startswith("/api/") or path in AUTH_EXEMPT:
+        if (
+            not path.startswith("/api/")
+            or path in AUTH_EXEMPT
+            or path.startswith("/api/shared/")
+        ):
             return await call_next(request)
         if path == "/api/auth/me" or path == "/api/auth/logout":
             return await call_next(request)
@@ -355,8 +383,8 @@ class _ResolvedProxy:
                 "protocol": protocol,
                 "address": proxy_entry.host,
                 "port": proxy_entry.port,
-                "id": proxy_entry.password or proxy_entry.username,
-                "alterId": 0,
+                "uuid": proxy_entry.password or proxy_entry.username,
+                "alter_id": 0,
                 "security": "auto",
                 "network": "tcp",
                 "tls": "",
@@ -369,10 +397,7 @@ class _ResolvedProxy:
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        if self._xray_node_id:
-            from app.xray_manager import stop_node
-
-            await stop_node(self._xray_node_id)
+        pass
 
 
 _workflow_runs: dict[str, dict[str, Any]] = {}
@@ -638,7 +663,10 @@ async def get_account(account_id: str) -> dict[str, Any]:
 @app.get("/api/accounts/{account_id}/session")
 async def get_account_session(request: Request, account_id: str) -> dict[str, Any]:
     caller_role = await _get_caller_role(request)
-    if ROLE_HIERARCHY.get(caller_role, 0) < ROLE_HIERARCHY["admin"]:
+    settings = await Settings.get_or_none(id=1)
+    ap = settings.access_policy if settings else {}
+    session_view_roles: list[str] = ap.get("session_view_roles", ["admin"])
+    if caller_role not in session_view_roles:
         raise HTTPException(403, "Insufficient permissions")
 
     acc = await Account.get_or_none(id=account_id)
@@ -707,7 +735,12 @@ async def execute_account_action(
             }
             openai_account_id = ""
             if action in needs_account_id:
-                check_data = await reg_module.get_account_info(session)
+                try:
+                    check_data = await reg_module.get_account_info(session)
+                except Exception as exc:
+                    raise HTTPException(
+                        502, f"Failed to fetch account info: {exc}"
+                    ) from exc
                 ordering = check_data.get("account_ordering")
                 if isinstance(ordering, list) and ordering:
                     openai_account_id = str(ordering[0])
@@ -733,7 +766,10 @@ async def execute_account_action(
                 "register_flow": lambda s: reg_module.register_flow(s),
             }
             fn = fn_map[action]
-            result = await fn(session)
+            try:
+                result = await fn(session)
+            except Exception as exc:
+                raise HTTPException(502, f"Action '{action}' failed: {exc}") from exc
 
     return {"action": action, "result": result}
 
@@ -1081,6 +1117,144 @@ async def get_codex_usage(
             return resp.json()
 
 
+from app.db import ShareToken
+
+
+@app.post("/api/accounts/{account_id}/share")
+async def create_share_token(
+    request: Request, account_id: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    acc = await Account.get_or_none(id=account_id)
+    if not acc:
+        raise HTTPException(404, "Account not found")
+
+    settings = await Settings.get_or_none(id=1)
+    sp = settings.share_policy if settings else {}
+    if not sp.get("enabled", True):
+        raise HTTPException(403, "Sharing is disabled by organization policy")
+
+    caller_role = await _get_caller_role(request)
+    allowed_roles: list[str] = sp.get("allowed_roles", ["admin", "manager", "operator"])
+    if caller_role not in allowed_roles:
+        raise HTTPException(
+            403, f"Role '{caller_role}' is not allowed to create share links"
+        )
+
+    hours = int(body.get("hours", 24))
+    max_hours = int(sp.get("max_hours", 720))
+    if hours < 1 or hours > max_hours:
+        raise HTTPException(400, f"hours must be between 1 and {max_hours}")
+
+    include_mailbox = bool(body.get("include_mailbox", False))
+    include_session = bool(body.get("include_session", False))
+
+    if include_session and not sp.get("allow_session", True):
+        raise HTTPException(
+            403, "Sharing session data is disabled by organization policy"
+        )
+    if include_mailbox and not sp.get("allow_mailbox", True):
+        raise HTTPException(
+            403, "Sharing mailbox data is disabled by organization policy"
+        )
+
+    from datetime import datetime, timedelta, timezone
+
+    token_id = secrets.token_urlsafe(24)
+    expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+
+    await ShareToken.create(
+        id=token_id,
+        account_id=account_id,
+        include_mailbox=include_mailbox,
+        include_session=include_session,
+        expires_at=expires.isoformat(),
+        created_at=_now(),
+    )
+
+    return {
+        "token": token_id,
+        "expires_at": expires.isoformat(),
+        "include_mailbox": include_mailbox,
+        "include_session": include_session,
+    }
+
+
+@app.get("/api/accounts/{account_id}/shares")
+async def list_share_tokens(account_id: str) -> list[dict[str, Any]]:
+    tokens = await ShareToken.filter(account_id=account_id, revoked=False).all()
+    return [
+        {
+            "id": t.id,
+            "account_id": t.account_id,
+            "include_mailbox": t.include_mailbox,
+            "include_session": t.include_session,
+            "expires_at": t.expires_at,
+            "created_at": t.created_at,
+        }
+        for t in tokens
+    ]
+
+
+@app.delete("/api/shares/{token_id}")
+async def revoke_share_token(token_id: str) -> dict[str, str]:
+    t = await ShareToken.get_or_none(id=token_id)
+    if not t:
+        raise HTTPException(404, "Share token not found")
+    t.revoked = True
+    await t.save()
+    return {"status": "revoked"}
+
+
+@app.get("/api/shared/{token_id}")
+async def get_shared_account(token_id: str) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    t = await ShareToken.get_or_none(id=token_id)
+    if not t or t.revoked:
+        raise HTTPException(404, "Share link not found or revoked")
+
+    expires = datetime.fromisoformat(t.expires_at)
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(410, "Share link has expired")
+
+    acc = await Account.get_or_none(id=t.account_id)
+    if not acc:
+        raise HTTPException(404, "Account not found")
+
+    result: dict[str, Any] = {
+        "id": acc.id,
+        "email": acc.email,
+        "status": acc.status,
+        "name": acc.name,
+        "plan": acc.plan,
+        "plan_expiry": acc.plan_expiry,
+        "proxy_url": acc.proxy_url,
+        "created_at": acc.created_at,
+        "last_login": acc.last_login,
+        "expires_at": t.expires_at,
+        "include_mailbox": t.include_mailbox,
+        "include_session": t.include_session,
+    }
+
+    if t.include_session:
+        result["session_token"] = acc.session_token
+        result["access_token"] = acc.access_token
+        result["codex_token"] = acc.codex_token
+        result["cookies"] = acc.cookies
+        result["password"] = acc.password
+
+    if t.include_mailbox:
+        mb = await Mailbox.filter(assigned_account_id=acc.id).first()
+        if mb:
+            result["mailbox"] = {
+                "id": mb.id,
+                "email": mb.email,
+                "status": mb.status,
+            }
+
+    return result
+
+
 @app.post("/api/accounts/{account_id}/checkout")
 async def create_checkout(account_id: str, body: dict[str, Any]) -> dict[str, Any]:
     acc = await Account.get_or_none(id=account_id)
@@ -1115,28 +1289,129 @@ async def create_checkout(account_id: str, body: dict[str, Any]) -> dict[str, An
 
     from curl_cffi.requests import AsyncSession
 
-    async with _ResolvedProxy(acc.proxy_url) as resolved:
-        proxies = (
-            {"https": resolved.url, "http": resolved.url} if resolved.url else None
-        )
-        async with AsyncSession(proxies=proxies, impersonate="chrome136") as session:
-            session.headers.update(
-                {
-                    "Authorization": f"Bearer {acc.access_token}",
-                    "Content-Type": "application/json",
-                }
+    try:
+        async with _ResolvedProxy(acc.proxy_url) as resolved:
+            proxies = (
+                {"https": resolved.url, "http": resolved.url} if resolved.url else None
             )
-            resp = await session.post(
-                "https://chatgpt.com/backend-api/payments/checkout",
-                json=payload,
-                timeout=30,
-            )
-            if resp.status_code != 200:
-                raise HTTPException(
-                    resp.status_code,
-                    f"Checkout failed: {resp.text[:500]}",
+            async with AsyncSession(
+                proxies=proxies, impersonate="chrome136"
+            ) as session:
+                session.headers.update(
+                    {
+                        "Authorization": f"Bearer {acc.access_token}",
+                        "Content-Type": "application/json",
+                    }
                 )
-            return resp.json()
+                resp = await session.post(
+                    "https://chatgpt.com/backend-api/payments/checkout",
+                    json=payload,
+                    timeout=30,
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        resp.status_code,
+                        f"Checkout failed: {resp.text[:500]}",
+                    )
+        return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Checkout request failed: {exc}") from exc
+
+
+# ── Extension API ──────────────────────────────────────────────
+
+
+@app.get("/api/extensions")
+async def list_extensions() -> list[dict[str, Any]]:
+    from app.db import Extension as ExtensionDB
+    from app.extensions import EXTENSIONS_DIR, discover_extensions, get_loaded
+
+    manifests = discover_extensions()
+    loaded = get_loaded()
+    results = []
+    for m in manifests:
+        db_ext = await ExtensionDB.get_or_none(id=m.id)
+        has_ui = (EXTENSIONS_DIR / m.id / "ui.json").exists()
+        results.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "description": m.description,
+                "version": m.version,
+                "author": m.author,
+                "settings_schema": m.settings_schema,
+                "enabled": db_ext.enabled if db_ext else False,
+                "settings": db_ext.settings if db_ext else {},
+                "loaded": m.id in loaded,
+                "has_ui": has_ui,
+            }
+        )
+    return results
+
+
+@app.post("/api/extensions/{ext_id}/enable")
+async def enable_extension(ext_id: str) -> dict[str, Any]:
+    from app.db import Extension as ExtensionDB
+    from app.extensions import discover_extensions, load_extension
+
+    manifests = {m.id: m for m in discover_extensions()}
+    if ext_id not in manifests:
+        raise HTTPException(404, "Extension not found")
+
+    db_ext, _ = await ExtensionDB.get_or_create(
+        id=ext_id, defaults={"enabled": True, "settings": {}}
+    )
+    if not db_ext.enabled:
+        db_ext.enabled = True
+        await db_ext.save()
+
+    load_extension(app, ext_id)
+    return {"id": ext_id, "enabled": True}
+
+
+@app.post("/api/extensions/{ext_id}/disable")
+async def disable_extension(ext_id: str) -> dict[str, Any]:
+    from app.db import Extension as ExtensionDB
+
+    db_ext = await ExtensionDB.get_or_none(id=ext_id)
+    if not db_ext:
+        raise HTTPException(404, "Extension not found")
+
+    db_ext.enabled = False
+    await db_ext.save()
+    return {"id": ext_id, "enabled": False, "note": "Restart required to fully unload"}
+
+
+@app.get("/api/extensions/{ext_id}/settings")
+async def get_extension_settings(ext_id: str) -> dict[str, Any]:
+    from app.db import Extension as ExtensionDB
+
+    db_ext = await ExtensionDB.get_or_none(id=ext_id)
+    return db_ext.settings if db_ext else {}
+
+
+@app.post("/api/extensions/{ext_id}/settings")
+async def save_extension_settings(ext_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    from app.db import Extension as ExtensionDB
+
+    db_ext, _ = await ExtensionDB.get_or_create(
+        id=ext_id, defaults={"enabled": False, "settings": {}}
+    )
+    db_ext.settings = body
+    await db_ext.save()
+    return db_ext.settings
+
+
+@app.get("/api/extensions/{ext_id}/ui")
+async def get_extension_ui_schema(ext_id: str) -> dict[str, Any]:
+    from app.extensions import get_extension_ui
+
+    ui = get_extension_ui(ext_id)
+    if ui is None:
+        raise HTTPException(404, "Extension has no UI")
+    return ui
 
 
 @app.get("/api/accounts/{account_id}/customer-portal")
@@ -1480,7 +1755,12 @@ async def get_workspace_id(account_id: str) -> dict[str, Any]:
         )
         async with AsyncSession(proxies=proxies, impersonate="chrome136") as session:
             session.headers.update({"Authorization": f"Bearer {acc.access_token}"})
-            check_data = await reg_module.get_account_info(session)
+            try:
+                check_data = await reg_module.get_account_info(session)
+            except Exception as exc:
+                raise HTTPException(
+                    502, f"Failed to fetch account info: {exc}"
+                ) from exc
             ordering = check_data.get("account_ordering")
             if isinstance(ordering, list) and ordering:
                 return {"workspace_id": str(ordering[0])}
@@ -1544,6 +1824,11 @@ async def start_workflow_run(run_id: str) -> dict[str, str]:
         asyncio.create_task(_run_login(run_id, req, future))
     elif wf_type == "codex_oauth":
         req = CodexOAuthRequest(**params)
+        asyncio.create_task(_run_codex(req, future))
+    elif wf_type == "codex_oauth_relay":
+        req = CodexOAuthRequest(
+            **{k: v for k, v in params.items() if k in CodexOAuthRequest.model_fields}
+        )
         asyncio.create_task(_run_codex(req, future))
     elif wf_type == "codex_device":
         req = CodexDeviceRequest(**params)
@@ -3566,6 +3851,14 @@ async def get_settings() -> dict[str, Any]:
             "allow_password_change": True,
             "password_expiry_days": 0,
             "session_timeout_min": 0,
+            "share_policy": {
+                "enabled": True,
+                "max_hours": 720,
+                "allow_session": True,
+                "allow_mailbox": True,
+                "allowed_roles": ["admin", "manager", "operator"],
+            },
+            "access_policy": {"session_view_roles": ["admin"]},
         }
     return {
         "org_name": s.org_name,
@@ -3575,6 +3868,8 @@ async def get_settings() -> dict[str, Any]:
         "allow_password_change": s.allow_password_change,
         "password_expiry_days": s.password_expiry_days,
         "session_timeout_min": s.session_timeout_min,
+        "share_policy": s.share_policy,
+        "access_policy": s.access_policy,
     }
 
 
@@ -3593,6 +3888,10 @@ async def save_settings(request: Request, req: OrgSettings) -> dict[str, Any]:
             "allow_password_change": req.allow_password_change,
             "password_expiry_days": req.password_expiry_days,
             "session_timeout_min": req.session_timeout_min,
+            "share_policy": req.share_policy.model_dump() if req.share_policy else {},
+            "access_policy": req.access_policy.model_dump()
+            if req.access_policy
+            else {},
         },
     )
     return {
@@ -3603,6 +3902,8 @@ async def save_settings(request: Request, req: OrgSettings) -> dict[str, Any]:
         "allow_password_change": req.allow_password_change,
         "password_expiry_days": req.password_expiry_days,
         "session_timeout_min": req.session_timeout_min,
+        "share_policy": req.share_policy.model_dump() if req.share_policy else {},
+        "access_policy": req.access_policy.model_dump() if req.access_policy else {},
     }
 
 
@@ -3945,24 +4246,44 @@ async def refresh_subscription(sub_id: str) -> dict[str, Any]:
     sub.updated_at = _now()
     await sub.save()
 
-    await Proxy.filter(subscription_id=sub_id).delete()
+    existing_proxies = await Proxy.filter(subscription_id=sub_id).all()
+    existing_by_index: dict[int, Any] = {
+        p.node_index: p for p in existing_proxies if p.node_index is not None
+    }
+
+    new_indices = set(range(len(nodes)))
+    old_indices = set(existing_by_index.keys())
+
+    for idx in old_indices - new_indices:
+        await Proxy.filter(id=existing_by_index[idx].id).delete()
+
     for i, node in enumerate(nodes):
-        proxy_id = str(uuid.uuid4())[:8]
-        await Proxy.create(
-            id=proxy_id,
-            protocol=node["protocol"],
-            host=node.get("address", ""),
-            port=node.get("port", 0),
-            username="",
-            password="",
-            label=node.get("name", "")
-            or f"{node['protocol']}:{node.get('address', '')}",
-            group=sub.name,
-            subscription_id=sub_id,
-            node_index=i,
-            url=f"{node['protocol']}://{node.get('address', '')}:{node.get('port', 0)}",
-            created_at=_now(),
-        )
+        if i in existing_by_index:
+            await Proxy.filter(id=existing_by_index[i].id).update(
+                protocol=node["protocol"],
+                host=node.get("address", ""),
+                port=node.get("port", 0),
+                label=node.get("name", "")
+                or f"{node['protocol']}:{node.get('address', '')}",
+                url=f"{node['protocol']}://{node.get('address', '')}:{node.get('port', 0)}",
+            )
+        else:
+            proxy_id = str(uuid.uuid4())[:8]
+            await Proxy.create(
+                id=proxy_id,
+                protocol=node["protocol"],
+                host=node.get("address", ""),
+                port=node.get("port", 0),
+                username="",
+                password="",
+                label=node.get("name", "")
+                or f"{node['protocol']}:{node.get('address', '')}",
+                group=sub.name,
+                subscription_id=sub_id,
+                node_index=i,
+                url=f"{node['protocol']}://{node.get('address', '')}:{node.get('port', 0)}",
+                created_at=_now(),
+            )
 
     result = await Subscription.filter(id=sub_id).values()
     r = result[0]
@@ -4023,3 +4344,24 @@ async def list_running_nodes() -> dict[str, Any]:
     from app.xray_manager import get_running_nodes
 
     return get_running_nodes()
+
+
+@app.post("/api/xray/stop/{node_id:path}")
+async def stop_xray_node(node_id: str) -> dict[str, str]:
+    from app.xray_manager import stop_node
+
+    await stop_node(node_id)
+    return {"status": "stopped"}
+
+
+@app.get("/api/proxy-risk/{ip}")
+async def get_proxy_risk(ip: str) -> dict[str, Any]:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"https://ip.net.coffee/api/iprisk/{ip}")
+        if resp.status_code != 200:
+            raise HTTPException(
+                resp.status_code, f"IP risk check failed: {resp.text[:300]}"
+            )
+        return resp.json()
