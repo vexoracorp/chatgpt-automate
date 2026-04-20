@@ -17,15 +17,12 @@ import TextFilter from "@cloudscape-design/components/text-filter";
 import Spinner from "@cloudscape-design/components/spinner";
 import {
   type Account,
-  type CodexSettings,
   type Proxy,
   deleteAccount,
   fetchAccounts,
-  fetchCodexSettings,
   fetchProxies,
   importSession,
   refreshAccount,
-  registerAccount,
 } from "../api/client";
 import OTPModal from "../components/OTPModal";
 import { useAuth } from "../context/AuthContext";
@@ -69,11 +66,7 @@ export default function AccountsPage() {
   const [otpAccountId, setOtpAccountId] = useState("");
   const [refreshing, setRefreshing] = useState<string | null>(null);
 
-  const [registerVisible, setRegisterVisible] = useState(false);
-  const [regEmail, setRegEmail] = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regName, setRegName] = useState("Neo");
-  const [regProxy, setRegProxy] = useState<{ label: string; value: string } | null>(null);
+
   const [loginVisible, setLoginVisible] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginSessionJson, setLoginSessionJson] = useState("");
@@ -126,16 +119,6 @@ export default function AccountsPage() {
     ...proxies.map((p) => ({ label: p.label || p.url, value: p.url })),
   ];
 
-  const openRegister = async () => {
-    await loadProxies();
-    setRegEmail("");
-    setRegPassword("");
-    setRegName("Neo");
-    setRegProxy(null);
-    setFormError("");
-    setRegisterVisible(true);
-  };
-
   const openLogin = async () => {
     await loadProxies();
     setLoginEmail("");
@@ -143,27 +126,6 @@ export default function AccountsPage() {
     setLoginProxy(null);
     setFormError("");
     setLoginVisible(true);
-  };
-
-  const handleRegister = async () => {
-    if (!regEmail) return;
-    setFormLoading(true);
-    setFormError("");
-    try {
-      const result = await registerAccount({
-        email: regEmail,
-        password: regPassword || undefined,
-        name: regName || "Neo",
-        proxy_url: regProxy?.value || undefined,
-      });
-      setRegisterVisible(false);
-      setOtpAccountId(result.account_id);
-      await load();
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Registration failed");
-    } finally {
-      setFormLoading(false);
-    }
   };
 
   const handleLogin = async () => {
@@ -327,7 +289,8 @@ export default function AccountsPage() {
                   Delete
                 </Button>}
                 {canWrite && <Button onClick={openLogin}>Import Session</Button>}
-                {canWrite && <Button variant="primary" onClick={openRegister}>
+                {canWrite && <Button onClick={() => navigate("/workflows/login")}>Login</Button>}
+                {canWrite && <Button variant="primary" onClick={() => navigate("/workflows/register")}>
                   Register
                 </Button>}
               </SpaceBetween>
@@ -346,66 +309,6 @@ export default function AccountsPage() {
           load();
         }}
       />
-
-      <Modal
-        visible={registerVisible}
-        onDismiss={() => setRegisterVisible(false)}
-        header={<Header variant="h2">Register Account</Header>}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setRegisterVisible(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                loading={formLoading}
-                onClick={handleRegister}
-                disabled={!regEmail}
-              >
-                Register
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
-      >
-        <SpaceBetween size="l">
-          {formError && <Alert type="error">{formError}</Alert>}
-          <FormField label="Email">
-            <Input
-              value={regEmail}
-              onChange={({ detail }) => setRegEmail(detail.value)}
-              placeholder="user@example.com"
-              type="email"
-            />
-          </FormField>
-          <FormField label="Password">
-            <Input
-              value={regPassword}
-              onChange={({ detail }) => setRegPassword(detail.value)}
-              type="password"
-            />
-          </FormField>
-          <FormField label="Name">
-            <Input
-              value={regName}
-              onChange={({ detail }) => setRegName(detail.value)}
-            />
-          </FormField>
-          <FormField label="Proxy">
-            <Select
-              selectedOption={regProxy}
-              onChange={({ detail }) =>
-                setRegProxy(
-                  detail.selectedOption as { label: string; value: string }
-                )
-              }
-              options={proxyOptions}
-              placeholder="Direct (no proxy)"
-            />
-          </FormField>
-        </SpaceBetween>
-      </Modal>
 
       <Modal
         visible={loginVisible}
