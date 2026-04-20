@@ -1,0 +1,170 @@
+{
+  "schemaVersion": "1.0",
+  "page": {
+    "title": "Relay Codex",
+    "description": "Connect accounts to Relay and manage provider connections."
+  },
+  "dataSources": {
+    "accounts": {
+      "type": "http",
+      "method": "GET",
+      "url": "/api/accounts",
+      "itemsPath": "$",
+      "load": "onPageLoad"
+    },
+    "relay_proxies": {
+      "type": "http",
+      "method": "GET",
+      "url": "/api/ext/relay-codex/proxies",
+      "itemsPath": "$.data",
+      "load": "onPageLoad"
+    },
+    "providers": {
+      "type": "http",
+      "method": "GET",
+      "url": "/api/ext/relay-codex/providers",
+      "itemsPath": "$.data.data",
+      "load": "onPageLoad"
+    }
+  },
+  "layout": [
+    {
+      "type": "section",
+      "id": "connect_section",
+      "header": "계정 연결",
+      "components": [
+        {
+          "type": "multiselect",
+          "id": "account_ids",
+          "label": "계정 선택",
+          "placeholder": "연결할 계정 선택...",
+          "dataSource": "accounts",
+          "optionValueKey": "id",
+          "optionLabelKey": "email",
+          "empty": "계정이 없습니다"
+        },
+        {
+          "type": "select",
+          "id": "family",
+          "label": "Family",
+          "options": [
+            { "label": "CODEX", "value": "CODEX" },
+            { "label": "KIRO", "value": "KIRO" }
+          ],
+          "defaultValue": "CODEX"
+        },
+        {
+          "type": "select",
+          "id": "provider_type",
+          "label": "Type",
+          "description": "Backup providers are used when the main is unavailable.",
+          "options": [
+            { "label": "MAIN", "value": "MAIN" },
+            { "label": "BACKUP", "value": "BACKUP" }
+          ],
+          "defaultValue": "MAIN"
+        },
+        {
+          "type": "input",
+          "id": "label",
+          "label": "Label",
+          "placeholder": "Optional display name (default: Auto - email)"
+        },
+        {
+          "type": "input",
+          "id": "priority",
+          "label": "Priority",
+          "inputType": "number",
+          "placeholder": "1",
+          "description": "Lower values are selected first. Defaults to 1."
+        },
+        {
+          "type": "select",
+          "id": "proxyId",
+          "label": "Proxy",
+          "description": "Route requests through a proxy server.",
+          "dataSource": "relay_proxies",
+          "optionValueKey": "id",
+          "optionLabelKey": "label",
+          "placeholder": "None (Direct connection)"
+        },
+        {
+          "type": "checkbox",
+          "id": "supportsVision",
+          "label": "Supports Vision",
+          "description": "Enable if this provider can process image inputs."
+        },
+        {
+          "type": "button",
+          "id": "start_auth_btn",
+          "label": "Relay에 연결",
+          "variant": "primary",
+          "disabledWhen": [{ "source": "form.account_ids", "operator": "empty" }],
+          "action": {
+            "type": "http",
+            "mode": "forEach",
+            "items": "form.account_ids",
+            "request": {
+              "method": "POST",
+              "url": "/api/ext/relay-codex/start-auth/{{item}}",
+              "bodyFromForm": ["family", "provider_type:type", "label", "priority", "proxyId", "supportsVision"]
+            },
+            "onSuccess": {
+              "flash": { "type": "success", "content": "{{successCount}}개 워크플로우 생성됨" },
+              "clear": ["form.account_ids"]
+            },
+            "onError": {
+              "flash": { "type": "error", "content": "{{successCount}}개 성공, {{errorCount}}개 실패" }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "id": "providers_section",
+      "header": "Relay Providers",
+      "components": [
+        {
+          "type": "table",
+          "id": "providers_table",
+          "dataSource": "providers",
+          "loadingText": "Loading providers...",
+          "empty": "연결된 provider 없음",
+          "rowClick": {
+            "type": "detailModal",
+            "url": "/api/ext/relay-codex/providers/{{row.id}}",
+            "itemsPath": "$.data",
+            "externalLink": {
+              "label": "Relay Admin",
+              "url": "https://relay-admin.algorix.io/providers/{{id}}"
+            },
+            "actions": [
+              {
+                "id": "refresh-token",
+                "label": "Refresh Token",
+                "method": "POST",
+                "url": "/api/ext/relay-codex/providers/{{id}}/refresh-token"
+              },
+              {
+                "id": "sync-models",
+                "label": "Sync Models",
+                "variant": "primary",
+                "method": "POST",
+                "url": "/api/ext/relay-codex/providers/{{id}}/sync-models"
+              }
+            ]
+          },
+          "columns": [
+            { "id": "label", "header": "Label", "cell": "{{row.label}}", "width": 250 },
+            { "id": "family", "header": "Family", "cell": "{{row.family}}", "width": 80 },
+            { "id": "type", "header": "Type", "cell": "{{row.type}}", "width": 80 },
+            { "id": "isActive", "header": "Status", "cell": "{{row.isActive}}", "width": 80 },
+            { "id": "id", "header": "ID", "cell": "{{row.id}}", "variant": "code" }
+          ],
+          "rowActions": []
+        }
+      ]
+    }
+  ]
+}
