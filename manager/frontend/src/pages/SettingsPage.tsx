@@ -17,19 +17,24 @@ import Toggle from "@cloudscape-design/components/toggle";
 import TokenGroup from "@cloudscape-design/components/token-group";
 import ExpandableSection from "@cloudscape-design/components/expandable-section";
 import Popover from "@cloudscape-design/components/popover";
+import Multiselect from "@cloudscape-design/components/multiselect";
 import {
   type ApiKeyInfo,
   type CdkProviderInfo,
   type User,
+  type SharePolicy,
+  type AccessPolicy,
   createApiKey,
   createCdkProvider,
   deleteApiKey,
   deleteCdkProvider,
   fetchApiKeys,
   fetchCdkProviders,
+  fetchRunningNodes,
   fetchUsers,
   getSettings,
   saveSettings,
+  stopXrayNode,
   updateCdkProvider,
 } from "../api/client";
 
@@ -1040,6 +1045,19 @@ export default function SettingsPage() {
   const [cdkDeleting, setCdkDeleting] = useState("");
   const [cdkDeleteConfirmId, setCdkDeleteConfirmId] = useState("");
 
+  const [xrayNodes, setXrayNodes] = useState<Record<string, { port: number; node: Record<string, unknown> }>>({});
+  const [xrayLoading, setXrayLoading] = useState(false);
+  const [xrayStopping, setXrayStopping] = useState("");
+  const [xrayStopConfirm, setXrayStopConfirm] = useState<string | null>(null);
+
+  const [sharePolicy, setSharePolicy] = useState<SharePolicy>({
+    enabled: true, max_hours: 720, allow_session: true, allow_mailbox: true,
+    allowed_roles: ["admin", "manager", "operator"],
+  });
+  const [accessPolicy, setAccessPolicy] = useState<AccessPolicy>({
+    session_view_roles: ["admin"],
+  });
+
   const userMap = useMemo(() => {
     const map: Record<string, User> = {};
     for (const u of users) map[u.id] = u;
@@ -1060,6 +1078,8 @@ export default function SettingsPage() {
       setSessionTimeoutMin(
         SESSION_TIMEOUT_OPTIONS.find((o) => o.value === String(s.session_timeout_min)) || SESSION_TIMEOUT_OPTIONS[0],
       );
+      if (s.share_policy) setSharePolicy(s.share_policy);
+      if (s.access_policy) setAccessPolicy(s.access_policy);
     } catch {
       void 0;
     }
@@ -1097,12 +1117,24 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const loadXrayNodes = useCallback(async () => {
+    setXrayLoading(true);
+    try {
+      setXrayNodes(await fetchRunningNodes());
+    } catch {
+      void 0;
+    } finally {
+      setXrayLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSettings();
     loadApiKeys();
     loadUsers();
     loadCdkProviders();
-  }, [loadSettings, loadApiKeys, loadUsers, loadCdkProviders]);
+    loadXrayNodes();
+  }, [loadSettings, loadApiKeys, loadUsers, loadCdkProviders, loadXrayNodes]);
 
   const addIp = () => {
     const ip = newIp.trim();
@@ -1125,6 +1157,8 @@ export default function SettingsPage() {
         allow_password_change: allowPasswordChange,
         password_expiry_days: parseInt(passwordExpiryDays.value || "0") || 0,
         session_timeout_min: parseInt(sessionTimeoutMin.value || "0") || 0,
+        share_policy: sharePolicy,
+        access_policy: accessPolicy,
       });
       setSuccess("Settings saved");
     } catch (e) {
@@ -1231,6 +1265,18 @@ export default function SettingsPage() {
     }
   };
 
+  const handleStopXray = async (nodeId: string) => {
+    setXrayStopping(nodeId);
+    try {
+      await stopXrayNode(nodeId);
+      await loadXrayNodes();
+    } catch {
+      void 0;
+    } finally {
+      setXrayStopping("");
+    }
+  };
+
   const tabs: TabDefinition[] = [
     {
       id: "general",
@@ -1310,6 +1356,71 @@ export default function SettingsPage() {
                 />
               </FormField>
             </SpaceBetween>
+          </Container>
+
+          <Container header={<Header variant="h2" description="Control who can share accounts and what data can be included">Share Policy</Header>}>
+            <SpaceBetween size="l">
+              <Toggle
+                checked={sharePolicy.enabled}
+                onChange={({ detail }) => setSharePolicy({ ...sharePolicy, enabled: detail.checked })}
+              >
+                Enable account sharing
+              </Toggle>
+              {sharePolicy.enabled && (
+                <SpaceBetween size="l">
+                  <FormField label="Maximum share duration (hours)" constraintText="1–720 hours">
+                    <Input
+                      type="number"
+                      value={String(sharePolicy.max_hours)}
+                      onChange={({ detail }) => setSharePolicy({ ...sharePolicy, max_hours: Math.max(1, Math.min(720, parseInt(detail.value) || 1)) })}
+                    />
+                  </FormField>
+                  <FormField label="Allowed roles" description="Only these roles can create share links">
+                    <Multiselect
+                      selectedOptions={sharePolicy.allowed_roles.map((r) => ({ label: r, value: r }))}
+                      onChange={({ detail }) => setSharePolicy({ ...sharePolicy, allowed_roles: detail.selectedOptions.map((o) => o.value!) })}
+                      options={[
+                        { label: "owner", value: "owner" },
+                        { label: "admin", value: "admin" },
+                        { label: "manager", value: "manager" },
+                        { label: "operator", value: "operator" },
+                        { label: "user", value: "user" },
+                      ]}
+                      placeholder="Select roles"
+                    />
+                  </FormField>
+                  <Toggle
+                    checked={sharePolicy.allow_session}
+                    onChange={({ detail }) => setSharePolicy({ ...sharePolicy, allow_session: detail.checked })}
+                  >
+                    Allow including session data in shares
+                  </Toggle>
+                  <Toggle
+                    checked={sharePolicy.allow_mailbox}
+                    onChange={({ detail }) => setSharePolicy({ ...sharePolicy, allow_mailbox: detail.checked })}
+                  >
+                    Allow including mailbox access in shares
+                  </Toggle>
+                </SpaceBetween>
+              )}
+            </SpaceBetween>
+          </Container>
+
+          <Container header={<Header variant="h2" description="Control which roles can view session data (access_token, session_token, cookies, password)">Access Policy</Header>}>
+            <FormField label="Session data visible to" description="Only these roles can view session data on account detail pages">
+              <Multiselect
+                selectedOptions={accessPolicy.session_view_roles.map((r) => ({ label: r, value: r }))}
+                onChange={({ detail }) => setAccessPolicy({ ...accessPolicy, session_view_roles: detail.selectedOptions.map((o) => o.value!) })}
+                options={[
+                  { label: "owner", value: "owner" },
+                  { label: "admin", value: "admin" },
+                  { label: "manager", value: "manager" },
+                  { label: "operator", value: "operator" },
+                  { label: "user", value: "user" },
+                ]}
+                placeholder="Select roles"
+              />
+            </FormField>
           </Container>
 
           <Box>
@@ -1481,6 +1592,131 @@ export default function SettingsPage() {
           </SpaceBetween>
         </Container>
       ),
+    },
+    {
+      id: "xray-processes",
+      label: "Xray Processes",
+      content: (() => {
+        const xrayItems = Object.entries(xrayNodes).map(([nodeId, entry]) => {
+          const n = entry.node as Record<string, unknown>;
+          const isStandalone = nodeId.startsWith("standalone:");
+          const usage = isStandalone
+            ? `Standalone proxy (${nodeId.split(":")[1]})`
+            : `Subscription node (${nodeId})`;
+          return {
+            nodeId,
+            port: entry.port,
+            protocol: n.protocol as string || "",
+            address: n.address as string || "",
+            remotePort: n.port as number || 0,
+            name: n.name as string || "",
+            usage,
+          };
+        });
+        return (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                counter={`(${xrayItems.length})`}
+                actions={
+                  <Button iconName="refresh" loading={xrayLoading} onClick={loadXrayNodes} />
+                }
+              >
+                Running Xray Processes
+              </Header>
+            }
+          >
+            <Table
+              items={xrayItems}
+              loading={xrayLoading}
+              loadingText="Loading xray processes..."
+              trackBy="nodeId"
+              empty={
+                <Box textAlign="center" color="inherit">
+                  <b>No xray processes running</b>
+                </Box>
+              }
+              columnDefinitions={[
+                {
+                  id: "name",
+                  header: "Name",
+                  width: 180,
+                  cell: (item) => (
+                    <SpaceBetween size="xxxs" direction="vertical">
+                      <Box fontWeight="bold">{item.name || "—"}</Box>
+                      <Box fontSize="body-s" color="text-body-secondary">{item.nodeId}</Box>
+                    </SpaceBetween>
+                  ),
+                },
+                { id: "protocol", header: "Protocol", width: 90, cell: (item) => <Box variant="code" fontSize="body-s">{item.protocol}</Box> },
+                { id: "address", header: "Address", width: 200, cell: (item) => item.address },
+                { id: "port", header: "Port", width: 80, cell: (item) => item.remotePort || "—" },
+                {
+                  id: "localUrl",
+                  header: "Local URL",
+                  width: 220,
+                  cell: (item) => (
+                    <CopyToClipboard
+                      variant="inline"
+                      textToCopy={`socks5://127.0.0.1:${item.port}`}
+                      copyButtonAriaLabel="Copy local URL"
+                      copySuccessText="Copied"
+                      copyErrorText="Failed to copy"
+                    />
+                  ),
+                },
+                { id: "usage", header: "Usage", cell: (item) => <Box fontSize="body-s" color="text-body-secondary">{item.usage}</Box> },
+                {
+                  id: "actions",
+                  header: "",
+                  width: 70,
+                  cell: (item) => (
+                    <Button
+                      variant="link"
+                      loading={xrayStopping === item.nodeId}
+                      onClick={() => setXrayStopConfirm(item.nodeId)}
+                    >
+                      <span style={{ color: "#d91515" }}>Stop</span>
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+            <Modal
+              visible={!!xrayStopConfirm}
+              onDismiss={() => setXrayStopConfirm(null)}
+              header={<Header variant="h2">Stop Xray Process</Header>}
+              footer={
+                <Box float="right">
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button variant="link" onClick={() => setXrayStopConfirm(null)}>Cancel</Button>
+                    <Button
+                      variant="primary"
+                      loading={xrayStopping === xrayStopConfirm}
+                      onClick={async () => {
+                        if (!xrayStopConfirm) return;
+                        await handleStopXray(xrayStopConfirm);
+                        setXrayStopConfirm(null);
+                      }}
+                    >
+                      Stop Process
+                    </Button>
+                  </SpaceBetween>
+                </Box>
+              }
+            >
+              <SpaceBetween size="m">
+                <Box>이 xray 프로세스를 중지하시겠습니까?</Box>
+                <Alert type="warning">이 프로세스를 통해 프록시를 사용 중인 요청이 실패할 수 있습니다. 진행 중인 워크플로우나 API 호출이 있다면 중단될 수 있습니다.</Alert>
+                {xrayStopConfirm && (
+                  <Box variant="code" fontSize="body-s">{xrayStopConfirm}</Box>
+                )}
+              </SpaceBetween>
+            </Modal>
+          </Container>
+        );
+      })(),
     },
     {
       id: "api-docs",

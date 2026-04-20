@@ -14,6 +14,7 @@ import Table from "@cloudscape-design/components/table";
 import Popover from "@cloudscape-design/components/popover";
 import Alert from "@cloudscape-design/components/alert";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
+import Spinner from "@cloudscape-design/components/spinner";
 import {
   type Proxy,
   type ProxyTestResult,
@@ -27,6 +28,8 @@ import {
   previewSubscription,
   fetchSubscriptions,
   refreshSubscription,
+  fetchIpRisk,
+  type IpRiskInfo,
   type Subscription,
   type SubscriptionPreview,
 } from "../api/client";
@@ -72,6 +75,10 @@ export default function ProxiesPage() {
   const [subSelected, setSubSelected] = useState<SubscriptionPreview["nodes"]>([]);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
   const [editLabelValue, setEditLabelValue] = useState("");
+  const [selectedProxy, setSelectedProxy] = useState<Proxy | null>(null);
+  const [ipRisk, setIpRisk] = useState<IpRiskInfo | null>(null);
+  const [ipRiskLoading, setIpRiskLoading] = useState(false);
+  const [ipRiskError, setIpRiskError] = useState("");
 
   const handleLabelSave = async (proxyId: string) => {
     setEditingLabel(null);
@@ -82,6 +89,23 @@ export default function ProxiesPage() {
       setProxies((prev) => prev.map((p) => p.id === proxyId ? { ...p, label: updated.label } : p));
     } catch {
       void 0;
+    }
+  };
+
+  const handleProxySelect = async (proxy: Proxy) => {
+    setSelectedProxy(proxy);
+    setIpRisk(null);
+    setIpRiskError("");
+    const ip = proxy.last_test?.ip;
+    if (!ip) return;
+    setIpRiskLoading(true);
+    try {
+      const risk = await fetchIpRisk(ip);
+      setIpRisk(risk);
+    } catch (e) {
+      setIpRiskError(e instanceof Error ? e.message : "Failed to fetch IP risk");
+    } finally {
+      setIpRiskLoading(false);
     }
   };
 
@@ -651,6 +675,7 @@ export default function ProxiesPage() {
           {
             id: "label",
             header: "Label",
+            width: 180,
             cell: (item) => editingLabel === item.id ? (
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -679,21 +704,24 @@ export default function ProxiesPage() {
             id: "group",
             header: "Group",
             cell: (item) => item.group || "-",
+            width: 90,
           },
           {
             id: "protocol",
             header: "Protocol",
             cell: (item) => item.protocol.toUpperCase(),
-            width: 100,
+            width: 90,
           },
           {
             id: "host",
             header: "Host",
             cell: (item) => `${item.host}:${item.port}`,
+            width: 250,
           },
           {
             id: "ip",
             header: "IP",
+            width: 140,
             cell: (item) => {
               const t = item.last_test;
               if (!t) return "-";
@@ -702,6 +730,7 @@ export default function ProxiesPage() {
               return (
                 <Popover
                   triggerType="text"
+                  dismissButton={false}
                   content={
                     <SpaceBetween size="xxs">
                       {isRisky && (
@@ -725,6 +754,7 @@ export default function ProxiesPage() {
           {
             id: "country",
             header: "Country",
+            width: 160,
             cell: (item) => {
               if (!item.last_test) return "-";
               const cc = item.last_test.country_code;
@@ -734,6 +764,7 @@ export default function ProxiesPage() {
                 return (
                   <Popover
                     triggerType="text"
+                    dismissButton={false}
                     content={
                       <Box>This proxy is in a restricted region. The program may not function properly. US or JP nodes are recommended.</Box>
                     }
@@ -755,19 +786,171 @@ export default function ProxiesPage() {
           {
             id: "actions",
             header: "Actions",
+            width: 120,
             cell: (item) => (
-              <Button
-                variant="inline-link"
-                loading={testing === item.id}
-                onClick={() => handleTest(item.id)}
-              >
-                Test
-              </Button>
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button
+                  variant="inline-link"
+                  onClick={() => handleProxySelect(item)}
+                >
+                  View
+                </Button>
+                <Button
+                  variant="inline-link"
+                  loading={testing === item.id}
+                  onClick={() => handleTest(item.id)}
+                >
+                  Test
+                </Button>
+              </SpaceBetween>
             ),
-            width: 100,
           },
         ]}
       />
+
+      {selectedProxy && (
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={
+                <Button variant="icon" iconName="close" onClick={() => setSelectedProxy(null)} />
+              }
+            >
+              {selectedProxy.label || "Proxy"} — {selectedProxy.protocol.toUpperCase()} {selectedProxy.host}:{selectedProxy.port}
+            </Header>
+          }
+        >
+          {(() => {
+            const abuserNum = ipRisk ? parseInt(ipRisk.abuser_score, 10) || 0 : 0;
+            return (
+              <SpaceBetween size="l">
+                {ipRisk && abuserNum > 30 && (
+                  <Alert type="warning">
+                    High abuse score detected ({ipRisk.abuser_score}). This proxy may be flagged by services.
+                  </Alert>
+                )}
+
+                {!selectedProxy.last_test?.ip && (
+                  <Box color="text-status-inactive">Run a proxy test first to see IP risk details</Box>
+                )}
+
+                {ipRiskLoading && (
+                  <Box textAlign="center"><Spinner size="large" /></Box>
+                )}
+
+                {ipRiskError && (
+                  <Alert type="error">{ipRiskError}</Alert>
+                )}
+
+                {ipRisk && (
+                  <SpaceBetween size="l">
+                    <ColumnLayout columns={4} variant="text-grid">
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">IP</Box>
+                        <Box>{ipRisk.ip}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">CIDR</Box>
+                        <Box>{ipRisk.cidr}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">ASN</Box>
+                        <Box>{ipRisk.asn}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Organization</Box>
+                        <Box>{ipRisk.asOrganization}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Country</Box>
+                        <Box>{ipRisk.country} ({ipRisk.countryCode})</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Region</Box>
+                        <Box>{ipRisk.region}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">City</Box>
+                        <Box>{ipRisk.city}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Timezone</Box>
+                        <Box>{ipRisk.timezone}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Company Name</Box>
+                        <Box>{ipRisk.company_name || "-"}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Company Type</Box>
+                        <Box>{ipRisk.company_type || "-"}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">ASN Kind</Box>
+                        <Box>{ipRisk.asn_kind || "-"}</Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Trust Score</Box>
+                        <Box>
+                          <StatusIndicator type={ipRisk.trust_score >= 70 ? "success" : ipRisk.trust_score >= 40 ? "warning" : "error"}>
+                            {ipRisk.trust_score}
+                          </StatusIndicator>
+                        </Box>
+                      </SpaceBetween>
+                      <SpaceBetween size="xxs">
+                        <Box variant="awsui-key-label">Abuser Score</Box>
+                        <Box>
+                          <StatusIndicator type={abuserNum <= 20 ? "success" : abuserNum <= 50 ? "warning" : "error"}>
+                            {ipRisk.abuser_score}
+                          </StatusIndicator>
+                        </Box>
+                      </SpaceBetween>
+                    </ColumnLayout>
+
+                    {abuserNum > 50 && (
+                      <Alert type="warning">
+                        High abuse score detected. This proxy may be flagged.
+                      </Alert>
+                    )}
+
+                    <SpaceBetween size="xxs">
+                      <Box variant="awsui-key-label">Flags</Box>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {[
+                          ipRisk.is_datacenter && { label: "Datacenter", color: "#687078" },
+                          ipRisk.isResidential && { label: "Residential", color: "#037f0c" },
+                          ipRisk.is_vpn && { label: "VPN", color: "#d13212" },
+                          ipRisk.is_proxy && { label: "Proxy", color: "#d13212" },
+                          ipRisk.is_tor && { label: "Tor", color: "#d13212" },
+                          ipRisk.is_crawler && { label: "Crawler", color: "#687078" },
+                          ipRisk.is_abuser && { label: "Abuser", color: "#d13212" },
+                          ipRisk.is_mobile && { label: "Mobile", color: "#687078" },
+                        ].filter(Boolean).map((flag) => {
+                          const f = flag as { label: string; color: string };
+                          return (
+                            <span key={f.label} style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "#fff",
+                              backgroundColor: f.color,
+                            }}>
+                              {f.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </SpaceBetween>
+                  </SpaceBetween>
+                )}
+              </SpaceBetween>
+            );
+          })()}
+        </Container>
+      )}
     </SpaceBetween>
   );
 }

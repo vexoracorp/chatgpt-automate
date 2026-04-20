@@ -68,7 +68,16 @@ import {
   type AgeVerificationStatus,
   type AgeVerificationInquiry,
   fetchCustomerPortal,
+  createShareToken,
+  fetchShareTokens,
+  revokeShareToken,
+  getSettings,
+  type SharePolicy,
+  type AccessPolicy,
+  type ShareTokenInfo,
+  type ShareTokenCreateResult,
 } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 function statusType(s: string) {
   if (s === "active") return "success" as const;
@@ -115,6 +124,7 @@ const ACTIONS = [
 export default function AccountDetailPage() {
   const { accountId } = useParams<{ accountId: string }>();
   const navigate = useNavigate();
+  const { role: callerRole } = useAuth();
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -193,6 +203,17 @@ export default function AccountDetailPage() {
   const [ageVerifyModalVisible, setAgeVerifyModalVisible] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalConfirmVisible, setPortalConfirmVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareHours, setShareHours] = useState("24");
+  const [shareIncludeMailbox, setShareIncludeMailbox] = useState(false);
+  const [shareIncludeSession, setShareIncludeSession] = useState(false);
+  const [shareCreating, setShareCreating] = useState(false);
+  const [shareResult, setShareResult] = useState<ShareTokenCreateResult | null>(null);
+  const [shareTokens, setShareTokens] = useState<ShareTokenInfo[]>([]);
+  const [shareRevoking, setShareRevoking] = useState("");
+
+  const [sharePolicy, setSharePolicy] = useState<SharePolicy>({ enabled: true, max_hours: 720, allow_session: true, allow_mailbox: true, allowed_roles: ["admin", "manager", "operator"] });
+  const [accessPolicy, setAccessPolicy] = useState<AccessPolicy>({ session_view_roles: ["admin"] });
 
   const loadUsage = useCallback(async (range: "7d" | "1m" | "custom", groupBy: "day" | "week", customStart?: string, customEnd?: string) => {
     if (!accountId) return;
@@ -248,6 +269,13 @@ export default function AccountDetailPage() {
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    getSettings().then((s) => {
+      if (s.share_policy) setSharePolicy(s.share_policy);
+      if (s.access_policy) setAccessPolicy(s.access_policy);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (account?.access_token && loadedTabs.size === 0) {
@@ -456,6 +484,31 @@ export default function AccountDetailPage() {
       setError(e instanceof Error ? e.message : "Bind failed");
     } finally {
       setBindingMailbox(false);
+    }
+  };
+
+  const loadShareTokens = async () => {
+    if (!accountId) return;
+    try {
+      setShareTokens(await fetchShareTokens(accountId));
+    } catch { void 0; }
+  };
+
+  const handleCreateShare = async () => {
+    if (!accountId) return;
+    setShareCreating(true);
+    try {
+      const result = await createShareToken(accountId, {
+        hours: parseInt(shareHours) || 24,
+        include_mailbox: shareIncludeMailbox,
+        include_session: shareIncludeSession,
+      });
+      setShareResult(result);
+      await loadShareTokens();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create share link");
+    } finally {
+      setShareCreating(false);
     }
   };
 
@@ -1501,19 +1554,21 @@ export default function AccountDetailPage() {
         </SpaceBetween>
       </Grid>
 
-      <Container header={<Header variant="h2">Session Data</Header>}>
-        {account.session_token ? (
-          <div style={{ overflow: "hidden" }}>
-            <Box variant="code">
-              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 400, overflow: "auto", margin: 0, fontSize: 13 }}>
-                {(() => { try { return JSON.stringify(JSON.parse(account.session_token), null, 2); } catch { return account.session_token; } })()}
-              </pre>
-            </Box>
-          </div>
-        ) : (
-          <Box color="text-status-inactive">No session data</Box>
-        )}
-      </Container>
+      {accessPolicy.session_view_roles.includes(callerRole) && (
+        <Container header={<Header variant="h2">Session Data</Header>}>
+          {account.session_token ? (
+            <div style={{ overflow: "hidden" }}>
+              <Box variant="code">
+                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 400, overflow: "auto", margin: 0, fontSize: 13 }}>
+                  {(() => { try { return JSON.stringify(JSON.parse(account.session_token), null, 2); } catch { return account.session_token; } })()}
+                </pre>
+              </Box>
+            </div>
+          ) : (
+            <Box color="text-status-inactive">No session data</Box>
+          )}
+        </Container>
+      )}
 
       <Container header={<Header variant="h2">Danger Zone</Header>}>
         <Button variant="normal" onClick={() => setDeleteVisible(true)}>
@@ -1531,6 +1586,7 @@ export default function AccountDetailPage() {
         actions={
           <SpaceBetween direction="horizontal" size="xs">
             <Button onClick={() => navigate("/")} variant="link">← Accounts</Button>
+            <Button iconName="share" disabled={!sharePolicy.enabled || !sharePolicy.allowed_roles.includes(callerRole)} onClick={() => { setShareModalVisible(true); loadShareTokens(); }}>Share</Button>
             <Button iconName="refresh" loading={refreshing} onClick={handleRefresh} />
           </SpaceBetween>
         }
@@ -2322,6 +2378,143 @@ export default function AccountDetailPage() {
           mailboxEmail={boundMailbox.email}
         />
       )}
+
+      <Modal
+        visible={shareModalVisible}
+        onDismiss={() => { setShareModalVisible(false); setShareResult(null); }}
+        header={<Header variant="h2">Share Account</Header>}
+        size="large"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => { setShareModalVisible(false); setShareResult(null); }}>Close</Button>
+              {!shareResult && (
+                <Button variant="primary" loading={shareCreating} onClick={handleCreateShare}>Create Share Link</Button>
+              )}
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="l">
+          {!shareResult ? (
+            <SpaceBetween size="m">
+              <FormField label="Duration (hours)" constraintText={`Max ${sharePolicy.max_hours} hours`}>
+                <SpaceBetween size="xs">
+                  <Input
+                    type="number"
+                    value={shareHours}
+                    onChange={({ detail }) => {
+                      const v = parseInt(detail.value) || 0;
+                      setShareHours(v > sharePolicy.max_hours ? String(sharePolicy.max_hours) : detail.value);
+                    }}
+                    inputMode="numeric"
+                  />
+                  <SpaceBetween direction="horizontal" size="xxs">
+                    {[
+                      { label: "1h", value: "1" },
+                      { label: "6h", value: "6" },
+                      { label: "24h", value: "24" },
+                      { label: "72h", value: "72" },
+                      { label: "1 week", value: "168" },
+                    ].map((preset) => (
+                      <Button
+                        key={preset.value}
+                        variant={shareHours === preset.value ? "primary" : "normal"}
+                        onClick={() => setShareHours(preset.value)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </SpaceBetween>
+                </SpaceBetween>
+              </FormField>
+              <Toggle
+                checked={shareIncludeMailbox}
+                onChange={({ detail }) => setShareIncludeMailbox(detail.checked)}
+                disabled={!sharePolicy.allow_mailbox}
+              >
+                Include mailbox access — allows viewing mailbox emails and OTP
+                {!sharePolicy.allow_mailbox && " (disabled by policy)"}
+              </Toggle>
+              <Toggle
+                checked={shareIncludeSession}
+                onChange={({ detail }) => setShareIncludeSession(detail.checked)}
+                disabled={!sharePolicy.allow_session}
+              >
+                Include session data — allows viewing access_token, session_token, cookies, password
+                {!sharePolicy.allow_session && " (disabled by policy)"}
+              </Toggle>
+              {shareIncludeSession && (
+                <Alert type="warning">Session data includes sensitive credentials. Only share with trusted parties.</Alert>
+              )}
+            </SpaceBetween>
+          ) : (
+            <SpaceBetween size="m">
+              <Alert type="success">Share link created</Alert>
+              <FormField label="Share URL">
+                <CopyToClipboard
+                  variant="inline"
+                  textToCopy={`${window.location.origin}/shared/${shareResult.token}`}
+                  copyButtonAriaLabel="Copy share URL"
+                  copySuccessText="Copied"
+                  copyErrorText="Failed"
+                />
+              </FormField>
+              <SpaceBetween size="xxs">
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <Box color="text-body-secondary">Expires at</Box>
+                  <Box>{formatTime(shareResult.expires_at)}</Box>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <Box color="text-body-secondary">Mailbox access</Box>
+                  <StatusIndicator type={shareResult.include_mailbox ? "success" : "stopped"}>{shareResult.include_mailbox ? "Yes" : "No"}</StatusIndicator>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <Box color="text-body-secondary">Session data</Box>
+                  <StatusIndicator type={shareResult.include_session ? "warning" : "stopped"}>{shareResult.include_session ? "Yes" : "No"}</StatusIndicator>
+                </div>
+              </SpaceBetween>
+              <Button variant="normal" onClick={() => { setShareResult(null); setShareIncludeMailbox(false); setShareIncludeSession(false); setShareHours("24"); }}>
+                Create another
+              </Button>
+            </SpaceBetween>
+          )}
+
+          {shareTokens.length > 0 && (
+            <Container header={<Header variant="h3">Active share links</Header>}>
+              <SpaceBetween size="xs">
+                {shareTokens.map((t) => (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--color-border-divider-default)" }}>
+                    <SpaceBetween size="xxs" direction="horizontal">
+                      <Box variant="code" fontSize="body-s">{t.id.slice(0, 12)}…</Box>
+                      {t.include_mailbox && <StatusIndicator type="info">Mailbox</StatusIndicator>}
+                      {t.include_session && <StatusIndicator type="warning">Session</StatusIndicator>}
+                      <Box color="text-body-secondary" fontSize="body-s">expires {formatTime(t.expires_at)}</Box>
+                    </SpaceBetween>
+                    <Button
+                      variant="normal"
+                      loading={shareRevoking === t.id}
+                      onClick={async () => {
+                        setShareRevoking(t.id);
+                        try {
+                          await revokeShareToken(t.id);
+                          setShareTokens((prev) => prev.filter((x) => x.id !== t.id));
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : "Failed to revoke");
+                        } finally {
+                          setShareRevoking("");
+                        }
+                      }}
+                    >
+                      <span style={{ color: "var(--color-text-status-error)" }}>Revoke</span>
+                    </Button>
+                  </div>
+                ))}
+              </SpaceBetween>
+            </Container>
+          )}
+        </SpaceBetween>
+      </Modal>
     </SpaceBetween>
   );
 }
