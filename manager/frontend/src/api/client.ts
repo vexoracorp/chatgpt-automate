@@ -701,6 +701,59 @@ export async function submitOTP(data: {
   if (!res.ok) throw new Error(`OTP submit failed: ${res.status}`);
 }
 
+export interface ShareTokenInfo {
+  id: string;
+  account_id: string;
+  include_mailbox: boolean;
+  include_session: boolean;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface ShareTokenCreateResult {
+  token: string;
+  expires_at: string;
+  include_mailbox: boolean;
+  include_session: boolean;
+}
+
+export async function createShareToken(accountId: string, data: {
+  hours: number;
+  include_mailbox: boolean;
+  include_session: boolean;
+}): Promise<ShareTokenCreateResult> {
+  const res = await checkedFetch(`${API_BASE}/accounts/${accountId}/share`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to create share link: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchShareTokens(accountId: string): Promise<ShareTokenInfo[]> {
+  const res = await checkedFetch(`${API_BASE}/accounts/${accountId}/shares`, { headers: authHeadersNoBody() });
+  if (!res.ok) throw new Error(`Failed to fetch share tokens: ${res.status}`);
+  return res.json();
+}
+
+export async function revokeShareToken(tokenId: string): Promise<void> {
+  const res = await checkedFetch(`${API_BASE}/shares/${tokenId}`, { method: "DELETE", headers: authHeadersNoBody() });
+  if (!res.ok) throw new Error(`Failed to revoke share token: ${res.status}`);
+}
+
+export async function fetchSharedAccount(tokenId: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/shared/${tokenId}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Share link invalid: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function startCodexOAuth(data: {
   account_id: string;
   authorize_url: string;
@@ -954,6 +1007,18 @@ export async function verify2FALogin(userId: string, code: string): Promise<{ to
   return res.json();
 }
 
+export interface SharePolicy {
+  enabled: boolean;
+  max_hours: number;
+  allow_session: boolean;
+  allow_mailbox: boolean;
+  allowed_roles: string[];
+}
+
+export interface AccessPolicy {
+  session_view_roles: string[];
+}
+
 export interface AppSettings {
   org_name: string;
   allowed_ips: string[];
@@ -962,6 +1027,8 @@ export interface AppSettings {
   allow_password_change: boolean;
   password_expiry_days: number;
   session_timeout_min: number;
+  share_policy?: SharePolicy;
+  access_policy?: AccessPolicy;
 }
 
 export interface ApiKeyInfo {
@@ -1345,6 +1412,49 @@ export async function fetchRunningNodes(): Promise<Record<string, { port: number
   return res.json();
 }
 
+export async function stopXrayNode(nodeId: string): Promise<void> {
+  const res = await checkedFetch(`${API_BASE}/xray/stop/${encodeURIComponent(nodeId)}`, {
+    method: "POST",
+    headers: authHeadersNoBody(),
+  });
+  if (!res.ok) throw new Error(`Failed to stop xray node: ${res.status}`);
+}
+
+export interface IpRiskInfo {
+  ip: string;
+  cidr: string;
+  is_datacenter: boolean;
+  isResidential: boolean;
+  is_vpn: boolean;
+  is_proxy: boolean;
+  is_tor: boolean;
+  is_crawler: boolean;
+  is_abuser: boolean;
+  is_mobile: boolean;
+  company_type: string;
+  company_name: string;
+  abuser_score: string;
+  datacenter_name: string;
+  asn: number;
+  asOrganization: string;
+  country: string;
+  countryCode: string;
+  region: string;
+  city: string;
+  timezone: string;
+  asn_kind: string;
+  trust_score: number;
+}
+
+export async function fetchIpRisk(ip: string): Promise<IpRiskInfo> {
+  const res = await checkedFetch(`${API_BASE}/proxy-risk/${encodeURIComponent(ip)}`, { headers: authHeadersNoBody() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `IP risk check failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export interface ProxyTestInfo {
   ip?: string;
   country?: string;
@@ -1425,4 +1535,63 @@ export async function deleteWorkflowRun(id: string): Promise<void> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `Failed to delete run: ${res.status}`);
   }
+}
+
+export interface ExtensionInfo {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  settings_schema: Record<string, unknown>;
+  enabled: boolean;
+  settings: Record<string, unknown>;
+  loaded: boolean;
+  has_ui: boolean;
+}
+
+export async function fetchExtensions(): Promise<ExtensionInfo[]> {
+  const res = await checkedFetch(`${API_BASE}/extensions`, { headers: authHeadersNoBody() });
+  if (!res.ok) throw new Error(`Failed to fetch extensions: ${res.status}`);
+  return res.json();
+}
+
+export async function enableExtension(id: string): Promise<void> {
+  const res = await checkedFetch(`${API_BASE}/extensions/${id}/enable`, { method: "POST", headers: authHeadersNoBody() });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail || `Failed: ${res.status}`); }
+}
+
+export async function disableExtension(id: string): Promise<void> {
+  const res = await checkedFetch(`${API_BASE}/extensions/${id}/disable`, { method: "POST", headers: authHeadersNoBody() });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail || `Failed: ${res.status}`); }
+}
+
+export async function getExtensionSettings(id: string): Promise<Record<string, unknown>> {
+  const res = await checkedFetch(`${API_BASE}/extensions/${id}/settings`, { headers: authHeadersNoBody() });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function saveExtensionSettings(id: string, settings: Record<string, unknown>): Promise<void> {
+  const res = await checkedFetch(`${API_BASE}/extensions/${id}/settings`, {
+    method: "POST", headers: authHeaders(), body: JSON.stringify(settings),
+  });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail || `Failed: ${res.status}`); }
+}
+
+export async function fetchExtensionUI(extId: string): Promise<Record<string, unknown>> {
+  const res = await checkedFetch(`${API_BASE}/extensions/${extId}/ui`, { headers: authHeadersNoBody() });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail || `Failed: ${res.status}`); }
+  return res.json();
+}
+
+export async function extensionApiFetch(method: string, url: string, body?: unknown): Promise<unknown> {
+  const fullUrl = url.startsWith("http") ? url : `${API_BASE.replace("/api", "")}${url}`;
+  const opts: RequestInit = { method, headers: authHeaders() };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await checkedFetch(fullUrl, opts);
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail || `Failed: ${res.status}`); }
+  const text = await res.text();
+  if (!text) return {};
+  return JSON.parse(text);
 }

@@ -20,10 +20,13 @@ import ProxiesPage from "./pages/ProxiesPage";
 import MailboxesPage from "./pages/MailboxesPage";
 import UsersPage from "./pages/UsersPage";
 import SettingsPage from "./pages/SettingsPage";
+import ExtensionsPage from "./pages/ExtensionsPage";
+import ExtensionAppPage from "./pages/ExtensionAppPage";
+import SharedAccountPage from "./pages/SharedAccountPage";
 
 import GlobalErrorBoundary from "./components/ErrorReport";
 
-function AuthenticatedApp() {
+function AuthenticatedRoutes() {
   const { user, role, pendingUser, needs2FASetup, loading, sessionExpired } = useAuth();
 
   if (loading) {
@@ -41,27 +44,27 @@ function AuthenticatedApp() {
   const isAdmin = role === "admin" || role === "owner";
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<AccountsPage />} />
-          <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
-          <Route path="/workflows" element={<WorkflowsPage />} />
-          <Route path="/workflows/register" element={<RegisterWorkflow />} />
-          <Route path="/workflows/bulk-register" element={<BulkRegisterWorkflow />} />
-          <Route path="/workflows/login" element={<LoginWorkflow />} />
-          <Route path="/workflows/codex" element={<CodexWorkflow />} />
-          <Route path="/workflows/codex-device" element={<CodexDeviceWorkflow />} />
-          <Route path="/workflows/cdk-activate" element={<CdkActivateWorkflow />} />
-          <Route path="/workflows/promo-checkout" element={<PromoCheckoutWorkflow />} />
-          <Route path="/workflows/runs/:runId" element={<WorkflowRunDetailPage />} />
-          <Route path="/proxies" element={<ProxiesPage />} />
-          <Route path="/mailboxes" element={<MailboxesPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/settings" element={isAdmin ? <SettingsPage /> : <Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/" element={<AccountsPage />} />
+        <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
+        <Route path="/workflows" element={<WorkflowsPage />} />
+        <Route path="/workflows/register" element={<RegisterWorkflow />} />
+        <Route path="/workflows/bulk-register" element={<BulkRegisterWorkflow />} />
+        <Route path="/workflows/login" element={<LoginWorkflow />} />
+        <Route path="/workflows/codex" element={<CodexWorkflow />} />
+        <Route path="/workflows/codex-device" element={<CodexDeviceWorkflow />} />
+        <Route path="/workflows/cdk-activate" element={<CdkActivateWorkflow />} />
+        <Route path="/workflows/promo-checkout" element={<PromoCheckoutWorkflow />} />
+        <Route path="/workflows/runs/:runId" element={<WorkflowRunDetailPage />} />
+        <Route path="/proxies" element={<ProxiesPage />} />
+        <Route path="/mailboxes" element={<MailboxesPage />} />
+        <Route path="/users" element={<UsersPage />} />
+        <Route path="/settings" element={isAdmin ? <SettingsPage /> : <Navigate to="/" replace />} />
+        <Route path="/extensions" element={isAdmin ? <ExtensionsPage /> : <Navigate to="/" replace />} />
+        <Route path="/extensions/:extId" element={isAdmin ? <ExtensionAppPage /> : <Navigate to="/" replace />} />
+      </Route>
+    </Routes>
   );
 }
 
@@ -69,7 +72,12 @@ export default function App() {
   return (
     <AuthProvider>
       <GlobalErrorBoundary />
-      <AuthenticatedApp />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/shared/:tokenId" element={<SharedAccountPage />} />
+          <Route path="*" element={<AuthenticatedRoutes />} />
+        </Routes>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

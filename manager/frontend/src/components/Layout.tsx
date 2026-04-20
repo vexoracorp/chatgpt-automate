@@ -43,7 +43,10 @@ export default function Layout() {
       items: [
         { type: "link", text: "Users", href: "/users" },
         ...(isAdmin
-          ? [{ type: "link" as const, text: "Settings", href: "/settings" }]
+          ? [
+              { type: "link" as const, text: "Extensions", href: "/extensions" },
+              { type: "link" as const, text: "Settings", href: "/settings" },
+            ]
           : []),
       ],
     },
