@@ -91,12 +91,10 @@ async def _check_region(session: AsyncSession) -> str:
     return loc
 
 
-async def _get_sentinel_token(
-    session: AsyncSession, device_id: str, flow: str, tz_name: str = "random"
-) -> str:
+async def _get_sentinel_token(session: AsyncSession, device_id: str, flow: str) -> str:
     log.debug("  Fetching sentinel token (flow=%s)...", flow)
     user_agent = session.headers.get("User-Agent") or "Mozilla/5.0"
-    pow_token = sentinel_pow.build_token(str(user_agent), tz_name=tz_name)
+    pow_token = sentinel_pow.build_token(str(user_agent))
     log.debug("  PoW token generated: %s...%s", pow_token[:20], pow_token[-6:])
     start = time.monotonic()
     body = json.dumps({"p": pow_token, "id": device_id, "flow": flow})
@@ -155,7 +153,6 @@ class RegistrationSession:
         self._session = session
         self.email = ""
         self._region = ""
-        self._tz_name = "random"
         self._device_id = str(uuid.uuid4())
         self._auth_session_id = str(uuid.uuid4())
         self._csrf_token = ""
@@ -186,7 +183,6 @@ class RegistrationSession:
 
     async def check_region(self) -> str:
         self._region = await _check_region(self._session)
-        self._tz_name = sentinel_pow.tz_from_country(self._region)
         return self._region
 
     async def get_csrf(self) -> str:
@@ -255,13 +251,11 @@ class RegistrationSession:
             self._session,
             self._device_id,
             "authorize_continue",
-            tz_name=self._tz_name,
         )
         so_token_raw = await _get_sentinel_token(
             self._session,
             self._device_id,
             "oauth_create_account",
-            tz_name=self._tz_name,
         )
         elapsed = time.monotonic() - start
         log.info("  Both sentinel tokens acquired  |  %.1fs", elapsed)

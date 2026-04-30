@@ -85,11 +85,17 @@ async def _run_once(proxy: ProxyConfig, email: str) -> bool:
     try:
         async with await RegistrationSession.create(proxy=proxy) as reg:
             await reg.check_region()
+            await asyncio.sleep(0.5)
             await reg.get_csrf()
+            await asyncio.sleep(0.5)
             await reg.signin(email)
+            await asyncio.sleep(0.5)
             await reg.submit_email()
+            await asyncio.sleep(0.5)
             await reg.set_password(console_password_provider)
+            await asyncio.sleep(0.5)
             await reg.verify_otp(console_otp_provider)
+            await asyncio.sleep(0.5)
 
             name = await asyncio.to_thread(input, "\n  Enter name (default: Neo): ")
             name = name.strip() or "Neo"
@@ -99,6 +105,7 @@ async def _run_once(proxy: ProxyConfig, email: str) -> bool:
             birthdate = birthdate.strip() or "2000-02-20"
 
             await reg.create_account(name, birthdate)
+            await asyncio.sleep(0.5)
             session_data = await reg.establish_session()
 
             result: dict[str, object] = {}
