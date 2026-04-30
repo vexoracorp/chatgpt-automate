@@ -115,7 +115,7 @@ async def fetch_otp(
 
 async def poll_otp(
     user_email: str,
-    timeout: float = 300,
+    timeout: float = 180,
     poll_interval: float = 5,
     sender: str = "noreply@tm.openai.com",
 ) -> str:

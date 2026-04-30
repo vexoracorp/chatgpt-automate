@@ -225,6 +225,7 @@ class IPAllowlistMiddleware(BaseHTTPMiddleware):
 app.add_middleware(IPAllowlistMiddleware)
 
 _sessions: dict[str, dict[str, Any]] = {}
+_2fa_sessions: dict[str, dict[str, Any]] = {}
 
 AUTH_EXEMPT = {
     "/api/users/login",
@@ -558,7 +559,7 @@ async def _get_otp_fn(
 
 
 async def _poll_mailbox_otp(
-    mb_id: str, refresh_token: str, client_id: str, timeout: float = 300
+    mb_id: str, refresh_token: str, client_id: str, timeout: float = 180
 ) -> str:
     from datetime import datetime, timezone, timedelta
 
@@ -1253,6 +1254,90 @@ async def get_shared_account(token_id: str) -> dict[str, Any]:
             }
 
     return result
+
+
+async def _validate_share_token(token_id: str) -> tuple[Any, Any]:
+    from datetime import datetime, timezone
+
+    t = await ShareToken.get_or_none(id=token_id)
+    if not t or t.revoked:
+        raise HTTPException(404, "Share link not found or revoked")
+    expires = datetime.fromisoformat(t.expires_at)
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(410, "Share link has expired")
+    acc = await Account.get_or_none(id=t.account_id)
+    if not acc:
+        raise HTTPException(404, "Account not found")
+    return t, acc
+
+
+@app.get("/api/shared/{token_id}/codex-usage")
+async def get_shared_codex_usage(
+    token_id: str, start_date: str, end_date: str, group_by: str = "day"
+) -> dict[str, Any]:
+    _t, acc = await _validate_share_token(token_id)
+    if not acc.access_token:
+        raise HTTPException(400, "Account has no active session")
+
+    from curl_cffi.requests import AsyncSession
+
+    async with _ResolvedProxy(acc.proxy_url) as resolved:
+        proxies = (
+            {"https": resolved.url, "http": resolved.url} if resolved.url else None
+        )
+        async with AsyncSession(proxies=proxies, impersonate="chrome136") as session:
+            session.headers.update({"Authorization": f"Bearer {acc.access_token}"})
+            resp = await session.get(
+                "https://chatgpt.com/backend-api/wham/usage/daily-token-usage-breakdown",
+                params={
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "group_by": group_by,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(resp.status_code, f"Failed: {resp.text[:300]}")
+            return resp.json()
+
+
+@app.post("/api/shared/{token_id}/refresh")
+async def refresh_shared_account(token_id: str) -> dict[str, Any]:
+    _t, acc = await _validate_share_token(token_id)
+    return await _do_refresh_account(acc)
+
+
+@app.get("/api/shared/{token_id}/mailbox")
+async def get_shared_mailbox(token_id: str) -> dict[str, Any]:
+    t, acc = await _validate_share_token(token_id)
+    if not t.include_mailbox:
+        raise HTTPException(403, "Mailbox access not included in this share link")
+    mb = await Mailbox.filter(assigned_account_id=acc.id).first()
+    if not mb:
+        raise HTTPException(404, "No mailbox assigned")
+    return {"id": mb.id, "email": mb.email, "status": mb.status}
+
+
+@app.get("/api/shared/{token_id}/mailbox/messages")
+async def get_shared_mailbox_messages(token_id: str) -> list[dict[str, Any]]:
+    t, acc = await _validate_share_token(token_id)
+    if not t.include_mailbox:
+        raise HTTPException(403, "Mailbox access not included in this share link")
+    mb = await Mailbox.filter(assigned_account_id=acc.id).first()
+    if not mb:
+        raise HTTPException(404, "No mailbox assigned")
+    return await get_mailbox_mails(mb.id)
+
+
+@app.get("/api/shared/{token_id}/mailbox/messages/{mail_id}")
+async def get_shared_mailbox_message(token_id: str, mail_id: str) -> dict[str, Any]:
+    t, acc = await _validate_share_token(token_id)
+    if not t.include_mailbox:
+        raise HTTPException(403, "Mailbox access not included in this share link")
+    mb = await Mailbox.filter(assigned_account_id=acc.id).first()
+    if not mb:
+        raise HTTPException(404, "No mailbox assigned")
+    return await get_mailbox_mail(mb.id, mail_id)
 
 
 @app.post("/api/accounts/{account_id}/checkout")
@@ -2102,28 +2187,35 @@ async def _run_register(
                 async with await RegistrationSession.create(proxy=proxy) as reg:
                     _run_log(account_id, "Checking IP region...")
                     await reg.check_region()
+                    await asyncio.sleep(0.5)
                     _run_log(account_id, "Getting CSRF token...")
                     await reg.get_csrf()
+                    await asyncio.sleep(0.5)
                     _run_log(account_id, f"Signing in as {req.email}...")
                     await reg.signin(req.email)
+                    await asyncio.sleep(0.5)
                     _run_log(account_id, "Submitting email...")
                     page_type = await reg.submit_email()
                     _run_log(account_id, f"  page_type={page_type}")
+                    await asyncio.sleep(0.5)
                     _run_log(account_id, "Setting password...")
                     await reg.set_password(password_provider)
+                    await asyncio.sleep(0.5)
 
                     await Account.filter(id=account_id).update(status="awaiting_otp")
                     _update_run(account_id, status="awaiting_otp")
                     _run_log(account_id, "Waiting for OTP verification...")
 
-                    await reg.verify_otp(otp_fn, timeout=600)
+                    await reg.verify_otp(otp_fn, timeout=180)
                     _update_run(account_id, status="running")
                     _run_log(account_id, "OTP verified. Creating account...")
+                    await asyncio.sleep(0.5)
                     _run_log(
                         account_id,
                         f"  name={req.name}, birthdate={req.birthdate}, password={req.password}",
                     )
                     await reg.create_account(req.name, req.birthdate)
+                    await asyncio.sleep(0.5)
                     _run_log(account_id, "Establishing session...")
                     session_data = await reg.establish_session()
 
@@ -2286,7 +2378,7 @@ async def _run_login(
                     _update_run(account_id, status="awaiting_otp")
                     _run_log(account_id, "Waiting for OTP verification...")
 
-                    await session.verify_otp(otp_fn, timeout=600)
+                    await session.verify_otp(otp_fn, timeout=180)
                     _update_run(account_id, status="running")
                     _run_log(account_id, "OTP verified. Establishing session...")
                     session_data = await session.establish_session()
@@ -2396,7 +2488,7 @@ async def _run_codex(req: CodexOAuthRequest, otp_future: asyncio.Future[str]) ->
                     _run_log(req.account_id, f"Submitting email {account.email}...")
                     await session.submit_email(account.email)
                     _run_log(req.account_id, "Waiting for OTP verification...")
-                    await session.verify_otp(otp_fn, timeout=600)
+                    await session.verify_otp(otp_fn, timeout=180)
                     _update_run(req.account_id, status="running")
                     _run_log(req.account_id, "OTP verified. Selecting workspace...")
                     await session.select_workspace(req.workspace_id)
@@ -2492,7 +2584,7 @@ async def _run_codex_device(
                     await session.submit_email(account.email)
 
                     _run_log(req.account_id, "Waiting for OTP verification...")
-                    await session.verify_otp(otp_fn, timeout=600)
+                    await session.verify_otp(otp_fn, timeout=180)
 
                     _update_run(req.account_id, status="running")
                     _run_log(
@@ -3031,9 +3123,14 @@ async def user_login(req: UserLogin) -> dict[str, Any]:
                 pass
 
     if totp_enabled:
+        tfa_token = secrets.token_urlsafe(32)
+        _2fa_sessions[tfa_token] = {
+            "user_id": user.id,
+            "created_at": time.time(),
+        }
         return {
             "status": "2fa_required",
-            "user": {"id": user.id, "email": user.email},
+            "2fa_session": tfa_token,
             "totp_enabled": True,
             "require_2fa": require_2fa,
             "password_expired": password_expired,
@@ -3981,17 +4078,30 @@ async def update_profile(user_id: str, req: UserProfileUpdate) -> dict[str, str]
 async def verify_2fa_login(body: dict[str, str]) -> dict[str, Any]:
     import pyotp
 
-    user_id = body.get("user_id", "")
+    session_token = body.get("2fa_session", "")
     code = body.get("code", "")
+    if not session_token or session_token not in _2fa_sessions:
+        raise HTTPException(401, "Invalid or expired 2FA session")
+
+    session_data = _2fa_sessions[session_token]
+    if time.time() - session_data["created_at"] > 300:
+        del _2fa_sessions[session_token]
+        raise HTTPException(401, "2FA session expired")
+
+    user_id = session_data["user_id"]
     user = await User.get_or_none(id=user_id)
     if not user:
+        del _2fa_sessions[session_token]
         raise HTTPException(404, "User not found")
     secret = user.totp_secret or ""
     if not secret:
+        del _2fa_sessions[session_token]
         raise HTTPException(400, "2FA not configured")
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
         raise HTTPException(401, "Invalid 2FA code")
+
+    del _2fa_sessions[session_token]
     token = secrets.token_urlsafe(32)
     _sessions[token] = {
         "user_id": user_id,
@@ -4137,9 +4247,12 @@ async def me_totp_disable(request: Request) -> dict[str, str]:
 @app.get("/api/owner-contact")
 async def get_owner_contact() -> dict[str, str]:
     owner = await User.filter(role="owner").first()
-    if owner:
-        return {"email": owner.email}
-    return {"email": ""}
+    settings = await Settings.first()
+    org_name = settings.org_name if settings else "ChatGPT Account Manager"
+    return {
+        "email": owner.email if owner else "",
+        "org_name": org_name,
+    }
 
 
 @app.get("/api/subscriptions")
