@@ -1,0 +1,5018 @@
+openapi: 3.0.0
+paths:
+  /auth/register:
+    post:
+      operationId: AuthController_register
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDto'
+      responses:
+        '201':
+          description: User registered and logged in
+        '400':
+          description: Validation error
+        '404':
+          description: Invite not found or expired
+        '409':
+          description: Email already registered
+      summary: Register via invite token
+      tags:
+        - Auth
+  /auth/invite-info:
+    get:
+      operationId: AuthController_getInviteInfo
+      parameters:
+        - name: token
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invite info
+        '404':
+          description: Invite not found or expired
+      summary: Get invite details by token
+      tags:
+        - Auth
+  /auth/login:
+    post:
+      operationId: AuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginDto'
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+      summary: Login with email and password
+      tags:
+        - Auth
+  /auth/2fa/complete:
+    post:
+      operationId: AuthController_completeTwoFactor
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteTwoFactorDto'
+      responses:
+        '200':
+          description: 2FA verification successful
+        '401':
+          description: Invalid challenge token or code
+      summary: Complete 2FA login with challenge token and code
+      tags:
+        - Auth
+  /auth/2fa/email-challenge:
+    post:
+      operationId: AuthController_requestEmailChallenge
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFactorChallengeDto'
+      responses:
+        '200':
+          description: Email code sent
+        '401':
+          description: Invalid challenge token
+      summary: Request email code for 2FA challenge
+      tags:
+        - Auth
+  /auth/2fa/webauthn/options:
+    post:
+      operationId: AuthController_getWebAuthnChallengeOptions
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFactorChallengeDto'
+      responses:
+        '200':
+          description: WebAuthn options generated
+        '401':
+          description: Invalid challenge token
+      summary: Get WebAuthn authentication options for 2FA challenge
+      tags:
+        - Auth
+  /auth/2fa/webauthn/verify:
+    post:
+      operationId: AuthController_completeWebAuthnChallenge
+      parameters: []
+      responses:
+        '200':
+          description: WebAuthn verification successful
+        '401':
+          description: Invalid challenge or response
+      summary: Verify WebAuthn response for 2FA challenge
+      tags:
+        - Auth
+  /auth/me:
+    get:
+      operationId: AuthController_me
+      parameters: []
+      responses:
+        '200':
+          description: Current user profile
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: Get current user profile
+      tags:
+        - Auth
+  /auth/change-password:
+    post:
+      operationId: AuthController_changePassword
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordDto'
+      responses:
+        '200':
+          description: Password changed and logged in
+        '401':
+          description: Invalid or expired change token
+      summary: Change password after admin reset
+      tags:
+        - Auth
+  /auth/2fa/totp/enroll:
+    post:
+      operationId: TotpController_enroll
+      parameters: []
+      responses:
+        '201':
+          description: TOTP enrolled
+      security:
+        - bearer: []
+      summary: Enroll current user into TOTP 2FA
+      tags:
+        - Auth
+  /auth/2fa/totp/verify:
+    post:
+      operationId: TotpController_verify
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyTotpDto'
+      responses:
+        '200':
+          description: TOTP verified
+      security:
+        - bearer: []
+      summary: Verify TOTP code and enable 2FA
+      tags:
+        - Auth
+  /auth/2fa/totp:
+    delete:
+      operationId: TotpController_disable
+      parameters: []
+      responses:
+        '204':
+          description: TOTP disabled
+      security:
+        - bearer: []
+      summary: Disable TOTP 2FA for current user
+      tags:
+        - Auth
+  /api/orgs/{slug}/members/{userId}/2fa:
+    delete:
+      operationId: TotpOrgController_disableMemberTotp
+      parameters:
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: TOTP disabled for member
+      security:
+        - bearer: []
+      summary: Disable TOTP for an org member
+      tags:
+        - Auth
+  /api/admin/users/{userId}/2fa:
+    delete:
+      operationId: TotpAdminController_adminDisable
+      parameters:
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: TOTP disabled by admin
+      security:
+        - bearer: []
+      summary: Admin disable TOTP for any user
+      tags:
+        - Auth
+  /auth/2fa/recovery/regenerate:
+    post:
+      operationId: RecoveryController_regenerate
+      parameters: []
+      responses:
+        '201':
+          description: Recovery codes regenerated
+      security:
+        - bearer: []
+      summary: Regenerate recovery codes for current user
+      tags:
+        - Auth
+  /auth/2fa/recovery/verify:
+    post:
+      operationId: RecoveryController_verify
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRecoveryDto'
+      responses:
+        '200':
+          description: Recovery code verified
+      security:
+        - bearer: []
+      summary: Verify a recovery code for current user
+      tags:
+        - Auth
+  /auth/2fa/email/send:
+    post:
+      operationId: EmailCodeController_send
+      parameters: []
+      responses:
+        '200':
+          description: Email code sent
+      security:
+        - bearer: []
+      summary: Send a 2FA email verification code
+      tags:
+        - Auth
+  /auth/2fa/email/verify:
+    post:
+      operationId: EmailCodeController_verify
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailCodeDto'
+      responses:
+        '200':
+          description: Email code verified
+      security:
+        - bearer: []
+      summary: Verify a 2FA email code
+      tags:
+        - Auth
+  /auth/webauthn/register/options:
+    post:
+      operationId: WebAuthnController_registerOptions
+      parameters: []
+      responses:
+        '200':
+          description: Registration options generated
+      security:
+        - bearer: []
+      summary: Generate WebAuthn registration options
+      tags:
+        - Auth
+  /auth/webauthn/register/verify:
+    post:
+      operationId: WebAuthnController_registerVerify
+      parameters: []
+      responses:
+        '201':
+          description: Passkey registered
+      security:
+        - bearer: []
+      summary: Verify WebAuthn registration response
+      tags:
+        - Auth
+  /auth/webauthn/credentials:
+    get:
+      operationId: WebAuthnController_listCredentials
+      parameters: []
+      responses:
+        '200':
+          description: List of passkeys
+      security:
+        - bearer: []
+      summary: List registered passkeys
+      tags:
+        - Auth
+  /auth/webauthn/credentials/{id}:
+    delete:
+      operationId: WebAuthnController_deleteCredential
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Passkey deleted
+      security:
+        - bearer: []
+      summary: Delete a registered passkey
+      tags:
+        - Auth
+  /auth/2fa/status:
+    get:
+      operationId: TwoFactorSettingsController_getStatus
+      parameters: []
+      responses:
+        '200':
+          description: 2FA status
+      security:
+        - bearer: []
+      summary: Get 2FA status and enabled methods
+      tags:
+        - Auth
+  /auth/2fa/settings:
+    patch:
+      operationId: TwoFactorSettingsController_updateSettings
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTwoFactorSettingsDto'
+      responses:
+        '200':
+          description: 2FA settings updated
+      security:
+        - bearer: []
+      summary: Update 2FA settings
+      tags:
+        - Auth
+  /admin/health:
+    get:
+      operationId: AdminController_health
+      parameters: []
+      responses:
+        '200':
+          description: Service is healthy
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Admin health check
+      tags:
+        - Admin
+  /admin/api-keys:
+    get:
+      operationId: AdminApiKeysController_list
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: orgId
+          required: false
+          in: query
+          schema:
+            example: uuid-here
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+      responses:
+        '200':
+          description: Paginated API keys list
+      security:
+        - bearer: []
+      summary: List all API keys across organizations
+      tags:
+        - Admin API Keys
+  /admin/api-keys/{id}:
+    get:
+      operationId: AdminApiKeysController_detail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: API key detail
+        '404':
+          description: API key not found
+      security:
+        - bearer: []
+      summary: Get API key detail with usage stats
+      tags:
+        - Admin API Keys
+  /admin/api-keys/{id}/revoke:
+    patch:
+      operationId: AdminApiKeysController_revoke
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: API key revoked
+        '404':
+          description: API key not found
+      security:
+        - bearer: []
+      summary: Revoke an API key
+      tags:
+        - Admin API Keys
+  /admin/api-keys/{id}/rate-limit:
+    patch:
+      operationId: AdminApiKeysController_updateRateLimit
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                limit:
+                  type: number
+      responses:
+        '200':
+          description: Rate limit updated
+        '404':
+          description: API key or provider not found
+      security:
+        - bearer: []
+      summary: Update rate limit for API key provider
+      tags:
+        - Admin API Keys
+  /admin/api-keys/{id}/model-access:
+    patch:
+      operationId: AdminApiKeysController_toggleModelAccess
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                modelId:
+                  type: string
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: Model access toggled
+        '404':
+          description: API key or model not found
+      security:
+        - bearer: []
+      summary: Toggle model access
+      tags:
+        - Admin API Keys
+  /admin/backup-notifications:
+    get:
+      operationId: AdminBackupNotificationsController_list
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated backup notifications list
+      security:
+        - bearer: []
+      summary: List all backup usage notifications across orgs
+      tags:
+        - Admin Backup Notifications
+  /admin/orgs/{id}/credits:
+    get:
+      operationId: AdminCreditsController_listCredits
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            example: '2026-03-10T00:00:00.000Z'
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            example: '2026-03-13T23:59:59.999Z'
+            type: string
+        - name: type
+          required: false
+          in: query
+          schema:
+            enum:
+              - TOP_UP
+              - USAGE
+              - ADJUSTMENT
+              - REFUND
+            type: string
+      responses:
+        '200':
+          description: Credit balance and paginated transactions
+      security:
+        - bearer: []
+      summary: List credit transactions for an organization
+      tags:
+        - Admin Credits
+    post:
+      operationId: AdminCreditsController_createCreditOperation
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditOperationDto'
+      responses:
+        '201':
+          description: Credit operation created
+        '400':
+          description: Validation error
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Create a credit operation for an organization
+      tags:
+        - Admin Credits
+  /admin/orgs/{id}/discounts:
+    get:
+      operationId: AdminDiscountsController_getDiscounts
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Discounts list
+      security:
+        - bearer: []
+      summary: Get provider family discounts for an organization
+      tags:
+        - Admin Discounts
+    patch:
+      operationId: AdminDiscountsController_updateDiscounts
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                discounts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      providerFamily:
+                        type: string
+                        enum:
+                          - CODEX
+                          - OPENAI_COMPATIBLE
+                          - KIRO
+                          - COPILOT
+                      multiplier:
+                        type: number
+      responses:
+        '200':
+          description: Discounts updated
+      security:
+        - bearer: []
+      summary: Update provider family discounts
+      tags:
+        - Admin Discounts
+  /admin/leaderboard:
+    get:
+      operationId: AdminLeaderboardController_getLeaderboard
+      parameters:
+        - name: metric
+          required: false
+          in: query
+          description: Metric to rank by. Defaults to requests.
+          schema:
+            enum:
+              - requests
+              - tokens
+              - cost
+            type: string
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          description: Number of top users to return (max 100).
+          schema:
+            default: 10
+            type: number
+        - name: organizationId
+          required: false
+          in: query
+          description: Filter by organization ID.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Leaderboard entries
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: Get platform-wide usage leaderboard
+      tags:
+        - Admin Leaderboard
+  /admin/orgs:
+    get:
+      operationId: AdminOrgsController_listOrgs
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+      responses:
+        '200':
+          description: Paginated organizations list
+      security:
+        - bearer: []
+      summary: List organizations with pagination and filters
+      tags:
+        - Admin Orgs
+    post:
+      operationId: AdminOrgsController_createOrg
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+              required:
+                - name
+                - slug
+      responses:
+        '201':
+          description: Organization created
+        '400':
+          description: Validation error
+      security:
+        - bearer: []
+      summary: Create a new organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}:
+    get:
+      operationId: AdminOrgsController_getOrgDetail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization detail
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Get organization detail
+      tags:
+        - Admin Orgs
+    delete:
+      operationId: AdminOrgsController_softDeleteOrg
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization deactivated
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Soft delete an organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/hard:
+    delete:
+      operationId: AdminOrgsController_hardDeleteOrg
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization permanently deleted
+        '400':
+          description: Organization must be deactivated first
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Permanently delete a deactivated organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/reactivate:
+    post:
+      operationId: AdminOrgsController_reactivateOrg
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization reactivated
+        '400':
+          description: Organization is already active
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Reactivate a deactivated organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/settings:
+    patch:
+      operationId: AdminOrgsController_updateOrgSettings
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                killSwitchActive:
+                  type: boolean
+                billingHoldActive:
+                  type: boolean
+                paymentDueDay:
+                  type: number
+                paymentGraceDays:
+                  type: number
+                smtpHost:
+                  type: string
+                smtpPort:
+                  type: number
+                smtpUser:
+                  type: string
+                smtpPass:
+                  type: string
+                smtpFrom:
+                  type: string
+      responses:
+        '200':
+          description: Organization settings updated
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Update organization settings
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/members:
+    post:
+      operationId: AdminOrgsController_addMember
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - MANAGER
+                    - MEMBER
+              required:
+                - userId
+      responses:
+        '201':
+          description: Member added
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Add a member to an organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/members/{userId}:
+    delete:
+      operationId: AdminOrgsController_removeMember
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Member removed
+        '404':
+          description: Membership not found
+      security:
+        - bearer: []
+      summary: Remove a member from an organization
+      tags:
+        - Admin Orgs
+    patch:
+      operationId: AdminOrgsController_updateMemberRole
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                    - MANAGER
+                    - MEMBER
+              required:
+                - role
+      responses:
+        '200':
+          description: Member role updated
+        '404':
+          description: Membership not found
+      security:
+        - bearer: []
+      summary: Update a member role in an organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/invites:
+    get:
+      operationId: AdminOrgsController_listInvites
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of pending invites
+      security:
+        - bearer: []
+      summary: List pending invites for an organization
+      tags:
+        - Admin Orgs
+    post:
+      operationId: AdminOrgsController_createInvite
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - MANAGER
+                    - MEMBER
+              required:
+                - email
+                - role
+      responses:
+        '201':
+          description: Invite created
+        '404':
+          description: Organization not found
+        '409':
+          description: Duplicate invite
+      security:
+        - bearer: []
+      summary: Create an invite for an organization
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/invites/{inviteId}/resend:
+    post:
+      operationId: AdminOrgsController_resendInvite
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: inviteId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invite resent
+        '404':
+          description: Invite not found
+      security:
+        - bearer: []
+      summary: Resend an invite email
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/invites/{inviteId}:
+    delete:
+      operationId: AdminOrgsController_cancelInvite
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: inviteId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invite cancelled
+        '404':
+          description: Invite not found
+        '409':
+          description: Cannot cancel accepted invite
+      security:
+        - bearer: []
+      summary: Cancel an invite
+      tags:
+        - Admin Orgs
+  /admin/orgs/{id}/payments:
+    post:
+      operationId: AdminPaymentsController_recordPayment
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentDto'
+      responses:
+        '201':
+          description: Payment recorded
+      security:
+        - bearer: []
+      summary: Record a payment for an organization
+      tags:
+        - Admin Payments
+    get:
+      operationId: AdminPaymentsController_listPayments
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+      responses:
+        '200':
+          description: Payment list
+      security:
+        - bearer: []
+      summary: List payments for an organization
+      tags:
+        - Admin Payments
+  /admin/orgs/{id}/payments/{paymentId}/void:
+    post:
+      operationId: AdminPaymentsController_voidPayment
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: paymentId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoidPaymentDto'
+      responses:
+        '200':
+          description: Payment voided
+      security:
+        - bearer: []
+      summary: Void a payment
+      tags:
+        - Admin Payments
+  /admin/proxies:
+    get:
+      operationId: AdminProxiesController_listProxies
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+      responses:
+        '200':
+          description: Paginated proxies list
+      security:
+        - bearer: []
+      summary: List proxies with pagination and filters
+      tags:
+        - Admin Proxies
+    post:
+      operationId: AdminProxiesController_createProxy
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProxyDto'
+      responses:
+        '201':
+          description: Proxy created
+        '400':
+          description: Validation error
+      security:
+        - bearer: []
+      summary: Create a new proxy
+      tags:
+        - Admin Proxies
+  /admin/proxies/{id}:
+    get:
+      operationId: AdminProxiesController_getProxyDetail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proxy detail
+        '404':
+          description: Proxy not found
+      security:
+        - bearer: []
+      summary: Get proxy detail
+      tags:
+        - Admin Proxies
+    patch:
+      operationId: AdminProxiesController_updateProxy
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProxyDto'
+      responses:
+        '200':
+          description: Proxy updated
+        '404':
+          description: Proxy not found
+      security:
+        - bearer: []
+      summary: Update a proxy
+      tags:
+        - Admin Proxies
+    delete:
+      operationId: AdminProxiesController_deleteProxy
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteProxyDto'
+      responses:
+        '204':
+          description: Proxy deleted
+        '404':
+          description: Proxy not found
+      security:
+        - bearer: []
+      summary: Delete a proxy with optional provider reassignment
+      tags:
+        - Admin Proxies
+  /admin/proxies/{id}/test:
+    post:
+      operationId: AdminProxiesController_testConnectivity
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Connectivity test result
+        '404':
+          description: Proxy not found
+      security:
+        - bearer: []
+      summary: Test proxy connectivity
+      tags:
+        - Admin Proxies
+  /admin/request-logs/stream:
+    get:
+      operationId: AdminRequestLogSseController_stream
+      parameters: []
+      responses:
+        '200':
+          description: ''
+      tags:
+        - AdminRequestLogSse
+  /admin/request-logs:
+    get:
+      operationId: AdminRequestLogsController_list
+      parameters:
+        - name: userId
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: vision
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: stream
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: statusGroup
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerType
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerFamily
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: model
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: organizationSlug
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated request logs list across all organizations
+      security:
+        - bearer: []
+      summary: List request logs across all organizations
+      tags:
+        - Admin Request Logs
+  /admin/request-logs/{id}:
+    get:
+      operationId: AdminRequestLogsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request log detail
+        '404':
+          description: Request log not found
+      security:
+        - bearer: []
+      summary: Get a single request log by ID
+      tags:
+        - Admin Request Logs
+  /admin/request-logs/{id}/body:
+    get:
+      operationId: AdminRequestLogsController_getRequestLogBody
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: type
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Body content
+        '404':
+          description: Body not found
+      security:
+        - bearer: []
+      summary: Download request log body from S3 (admin)
+      tags:
+        - Admin Request Logs
+  /admin/settings:
+    get:
+      operationId: AdminSettingsController_getSettings
+      parameters: []
+      responses:
+        '200':
+          description: Current system settings
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Get current system settings
+      tags:
+        - Admin Settings
+    patch:
+      operationId: AdminSettingsController_updateSettings
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsDto'
+      responses:
+        '200':
+          description: Updated system settings
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Update system settings
+      tags:
+        - Admin Settings
+  /admin/settings/proxy-pool:
+    get:
+      operationId: AdminSettingsController_getProxyPoolConfig
+      parameters: []
+      responses:
+        '200':
+          description: Current proxy pool config
+      security:
+        - bearer: []
+      summary: Get proxy pool configuration
+      tags:
+        - Admin Settings
+    patch:
+      operationId: AdminSettingsController_updateProxyPoolConfig
+      parameters: []
+      responses:
+        '200':
+          description: Updated proxy pool config
+      security:
+        - bearer: []
+      summary: Update proxy pool configuration
+      tags:
+        - Admin Settings
+  /admin/settings/health-monitor:
+    get:
+      operationId: AdminSettingsController_getHealthMonitorSettings
+      parameters: []
+      responses:
+        '200':
+          description: Current health monitor config
+      security:
+        - bearer: []
+      summary: Get health monitor configuration
+      tags:
+        - Admin Settings
+    patch:
+      operationId: AdminSettingsController_updateHealthMonitorSettings
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateHealthMonitorSettingsDto'
+      responses:
+        '200':
+          description: Updated health monitor config
+        '400':
+          description: Validation error
+      security:
+        - bearer: []
+      summary: Update health monitor configuration
+      tags:
+        - Admin Settings
+  /admin/stats:
+    get:
+      operationId: AdminStatsController_getOverallStats
+      parameters: []
+      responses:
+        '200':
+          description: Platform stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStatsDto'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Get overall platform statistics
+      tags:
+        - Admin Stats
+  /admin/stats/model-usage:
+    get:
+      operationId: AdminStatsController_getModelUsage
+      parameters: []
+      responses:
+        '200':
+          description: Model usage stats
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Get model usage breakdown
+      tags:
+        - Admin Stats
+  /admin/orgs/{id}/usage:
+    get:
+      operationId: AdminUsageController_getOrgUsage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: groupBy
+          required: false
+          in: query
+          schema:
+            enum:
+              - model
+              - providerFamily
+              - project
+              - member
+              - apiKey
+              - org
+            type: string
+      responses:
+        '200':
+          description: Organization usage summary
+      security:
+        - bearer: []
+      summary: Get organization usage (admin)
+      tags:
+        - Admin Usage
+  /admin/usage:
+    get:
+      operationId: AdminUsageController_getPlatformUsage
+      parameters:
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: groupBy
+          required: false
+          in: query
+          schema:
+            enum:
+              - model
+              - providerFamily
+              - project
+              - member
+              - apiKey
+              - org
+            type: string
+      responses:
+        '200':
+          description: Platform usage summary
+      security:
+        - bearer: []
+      summary: Get platform-wide usage
+      tags:
+        - Admin Usage
+  /admin/users:
+    get:
+      operationId: AdminUsersController_listUsers
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+        - name: isPlatformAdmin
+          required: false
+          in: query
+          schema:
+            example: false
+            type: boolean
+      responses:
+        '200':
+          description: Paginated users list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: List users with pagination and filters
+      tags:
+        - Admin Users
+    post:
+      operationId: AdminUsersController_createUser
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                email:
+                  type: string
+                name:
+                  type: string
+                password:
+                  type: string
+                organizationId:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - MANAGER
+                    - MEMBER
+      responses:
+        '201':
+          description: User created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '409':
+          description: Email already registered
+      security:
+        - bearer: []
+      summary: Create a new user
+      tags:
+        - Admin Users
+  /admin/users/{id}:
+    get:
+      operationId: AdminUsersController_getUserDetail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User detail
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: User not found
+      security:
+        - bearer: []
+      summary: Get user detail with memberships
+      tags:
+        - Admin Users
+    patch:
+      operationId: AdminUsersController_updateUser
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: User updated
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: User not found
+        '409':
+          description: Email already registered
+      security:
+        - bearer: []
+      summary: Update user fields
+      tags:
+        - Admin Users
+  /admin/users/{id}/toggle-admin:
+    patch:
+      operationId: AdminUsersController_toggleAdmin
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Admin status toggled
+        '400':
+          description: Cannot remove last admin
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: User not found
+      security:
+        - bearer: []
+      summary: Toggle platform admin status
+      tags:
+        - Admin Users
+  /admin/users/{id}/reset-password:
+    post:
+      operationId: AdminUsersController_resetPassword
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Password reset with temporary password
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: User not found
+      security:
+        - bearer: []
+      summary: Reset user password
+      tags:
+        - Admin Users
+  /admin/users/{id}/disable-2fa:
+    post:
+      operationId: AdminUsersController_disableTwoFactor
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 2FA disabled
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: User not found
+      security:
+        - bearer: []
+      summary: Disable two-factor authentication
+      tags:
+        - Admin Users
+  /api/orgs/{slug}/invites:
+    get:
+      operationId: InvitesController_listInvites
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of pending invites
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: List pending invites for the organization
+      tags:
+        - Invites
+    post:
+      operationId: InvitesController_createInvite
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInviteDto'
+      responses:
+        '201':
+          description: Invite created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '409':
+          description: Duplicate invite
+      security:
+        - bearer: []
+      summary: Create an invite
+      tags:
+        - Invites
+  /api/orgs/{slug}/invites/{id}/resend:
+    post:
+      operationId: InvitesController_resendInvite
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invite resent
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Invite not found
+      security:
+        - bearer: []
+      summary: Resend an invite email
+      tags:
+        - Invites
+  /api/orgs/{slug}/invites/{id}:
+    delete:
+      operationId: InvitesController_cancelInvite
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invite cancelled
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Invite not found
+        '409':
+          description: Cannot cancel accepted invite
+      security:
+        - bearer: []
+      summary: Cancel an invite
+      tags:
+        - Invites
+  /invites/accept:
+    post:
+      operationId: InviteAcceptController_acceptInvite
+      parameters:
+        - name: token
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Invite accepted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Invite not found or expired
+        '409':
+          description: Already a member
+      security:
+        - bearer: []
+      summary: Accept an invite
+      tags:
+        - Invites
+  /api/orgs/{id}/payments:
+    post:
+      operationId: PaymentsController_recordPayment
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentDto'
+      responses:
+        '201':
+          description: Payment recorded
+      security:
+        - bearer: []
+      summary: Record a payment for the organization
+      tags:
+        - payments
+    get:
+      operationId: PaymentsController_listPayments
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+      responses:
+        '200':
+          description: Payment list
+      security:
+        - bearer: []
+      summary: List payments for the organization
+      tags:
+        - payments
+  /api/orgs/{id}/payments/{paymentId}/void:
+    post:
+      operationId: PaymentsController_voidPayment
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: paymentId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoidPaymentDto'
+      responses:
+        '200':
+          description: Payment voided
+      security:
+        - bearer: []
+      summary: Void a payment
+      tags:
+        - payments
+  /api/orgs/{slug}/request-logs/stream:
+    get:
+      operationId: RequestLogSseController_stream
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+      tags:
+        - RequestLogSse
+  /api/orgs/{slug}/request-logs:
+    get:
+      operationId: RequestLogsController_listOrganizationRequestLogs
+      parameters:
+        - name: userId
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: vision
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: stream
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: statusGroup
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerType
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerFamily
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: model
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: projectSlug
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated request logs list
+      security:
+        - bearer: []
+      summary: List organization-wide request logs
+      tags:
+        - Request Logs
+  /api/orgs/{slug}/request-logs/{id}:
+    get:
+      operationId: RequestLogsController_findOneRequestLog
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request log detail
+        '404':
+          description: Request log not found
+      security:
+        - bearer: []
+      summary: Get a single request log by ID
+      tags:
+        - Request Logs
+  /api/orgs/{slug}/projects/{projectSlug}/request-logs:
+    get:
+      operationId: RequestLogsController_listProjectRequestLogs
+      parameters:
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: userId
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: vision
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: stream
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: statusGroup
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerType
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: providerFamily
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: model
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated project request logs list
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: List project-scoped request logs
+      tags:
+        - Request Logs
+  /api/orgs/{slug}/request-logs/{id}/body:
+    get:
+      operationId: RequestLogsController_getRequestLogBody
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: type
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Body content
+        '404':
+          description: Body not found
+      security:
+        - bearer: []
+      summary: Download request log body from S3
+      tags:
+        - Request Logs
+  /api/orgs/{slug}/usage:
+    get:
+      operationId: UsageController_getOrganizationUsage
+      parameters:
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: groupBy
+          required: false
+          in: query
+          schema:
+            enum:
+              - model
+              - providerFamily
+              - project
+              - member
+              - apiKey
+              - org
+            type: string
+      responses:
+        '200':
+          description: Usage summary
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: Get organization usage summary
+      tags:
+        - Usage
+  /api/orgs/{slug}/projects/{projectSlug}/usage:
+    get:
+      operationId: UsageController_getProjectUsage
+      parameters:
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: groupBy
+          required: false
+          in: query
+          schema:
+            enum:
+              - model
+              - providerFamily
+              - project
+              - member
+              - apiKey
+              - org
+            type: string
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage summary
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: Get project usage summary
+      tags:
+        - Usage
+  /api/orgs/{slug}/leaderboard:
+    get:
+      operationId: LeaderboardController_getLeaderboard
+      parameters:
+        - name: metric
+          required: false
+          in: query
+          description: Metric to rank by. Defaults to requests.
+          schema:
+            enum:
+              - requests
+              - tokens
+              - cost
+            type: string
+        - name: from
+          required: false
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          description: Number of top users to return (max 100).
+          schema:
+            default: 10
+            type: number
+      responses:
+        '200':
+          description: Leaderboard entries
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: Get usage leaderboard for the organization
+      tags:
+        - Leaderboard
+  /health:
+    get:
+      operationId: HealthController_getHealth
+      parameters: []
+      responses:
+        '200':
+          description: ''
+      tags:
+        - Health
+  /api/orgs/{slug}/credits:
+    post:
+      operationId: BillingController_createCreditOperation
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditOperationDto'
+      responses:
+        '201':
+          description: Credit operation created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Create a credit operation for the organization
+      tags:
+        - billing
+    get:
+      operationId: CreditsController_getCredits
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            example: '2026-03-10T00:00:00.000Z'
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            example: '2026-03-13T23:59:59.999Z'
+            type: string
+        - name: type
+          required: false
+          in: query
+          schema:
+            enum:
+              - TOP_UP
+              - USAGE
+              - ADJUSTMENT
+              - REFUND
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Credit balance and paginated transactions
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Get credit balance and transaction history
+      tags:
+        - billing
+  /api/orgs:
+    get:
+      operationId: OrgsController_listOrgs
+      parameters: []
+      responses:
+        '200':
+          description: Organizations for the authenticated user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrgListItemDto'
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: List organizations for the authenticated user
+      tags:
+        - Organizations
+    post:
+      operationId: OrgsController_createOrg
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrgDto'
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgDetailDto'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '409':
+          description: Slug already exists
+      security:
+        - bearer: []
+      summary: Create a new organization
+      tags:
+        - Organizations
+  /api/orgs/{slug}:
+    get:
+      operationId: OrgsController_getOrg
+      parameters: []
+      responses:
+        '200':
+          description: Organization detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgDetailDto'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Get organization details for a member org
+      tags:
+        - Organizations
+  /api/orgs/{slug}/settings:
+    patch:
+      operationId: OrgsController_updateSettings
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsDto'
+      responses:
+        '200':
+          description: Organization settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgDetailDto'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: Update organization settings for a member org
+      tags:
+        - Organizations
+  /api/orgs/{slug}/backup-notifications:
+    get:
+      operationId: OrgsController_listBackupNotifications
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backup notifications list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupNotificationListResponseDto'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: List backup usage notifications for an org
+      tags:
+        - Organizations
+  /api/orgs/{slug}/smtp:
+    get:
+      operationId: OrgsController_getSmtpSettings
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SMTP settings
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: Get SMTP settings for an org
+      tags:
+        - Organizations
+    patch:
+      operationId: OrgsController_updateSmtpSettings
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSmtpSettingsDto'
+      responses:
+        '200':
+          description: SMTP settings updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: Update SMTP settings for an org
+      tags:
+        - Organizations
+  /api/orgs/{slug}/projects/{projectSlug}/api-keys:
+    get:
+      operationId: ApiKeysController_listApiKeys
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated API keys list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: List API keys for the project
+      tags:
+        - API Keys
+    post:
+      operationId: ApiKeysController_createApiKey
+      parameters:
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyDto'
+      responses:
+        '201':
+          description: API key created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: Create an API key for the project
+      tags:
+        - API Keys
+  /api/orgs/{slug}/projects/{projectSlug}/api-keys/{id}:
+    delete:
+      operationId: ApiKeysController_revokeApiKey
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: API key revoked
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Project or API key not found
+      security:
+        - bearer: []
+      summary: Revoke an API key
+      tags:
+        - API Keys
+    patch:
+      operationId: ApiKeysController_updateApiKey
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateApiKeyDto'
+      responses:
+        '200':
+          description: API key updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Project or API key not found
+      security:
+        - bearer: []
+      summary: Update an API key
+      tags:
+        - API Keys
+  /api/orgs/{slug}/api-keys:
+    get:
+      operationId: OrgApiKeysController_listOrgApiKeys
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated API keys list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: List all API keys for the organization
+      tags:
+        - API Keys
+  /api/orgs/{slug}/projects:
+    get:
+      operationId: ProjectsController_listProjects
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+      responses:
+        '200':
+          description: Paginated projects list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Organization not found
+      security:
+        - bearer: []
+      summary: List projects in the organization
+      tags:
+        - Projects
+    post:
+      operationId: ProjectsController_createProject
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectDto'
+      responses:
+        '201':
+          description: Project created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '409':
+          description: Project slug already exists
+      security:
+        - bearer: []
+      summary: Create a new project
+      tags:
+        - Projects
+  /api/orgs/{slug}/projects/{projectSlug}:
+    get:
+      operationId: ProjectsController_getProject
+      parameters:
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project detail
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: Get project details
+      tags:
+        - Projects
+    patch:
+      operationId: ProjectsController_updateProject
+      parameters:
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectDto'
+      responses:
+        '200':
+          description: Project updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: Update project properties
+      tags:
+        - Projects
+    delete:
+      operationId: ProjectsController_deleteProject
+      parameters:
+        - name: projectSlug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Project soft-deleted
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Project not found
+      security:
+        - bearer: []
+      summary: Soft-delete a project
+      tags:
+        - Projects
+  /models:
+    get:
+      operationId: ModelsController_findAll
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: family
+          required: false
+          in: query
+          schema:
+            enum:
+              - CLAUDE
+              - GPT
+              - GEMINI
+              - OTHERS
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+      responses:
+        '200':
+          description: Paginated model list
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: List all models for admin management
+      tags:
+        - models
+    post:
+      operationId: ModelsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelDto'
+      responses:
+        '201':
+          description: Model created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '409':
+          description: Model already exists
+      security:
+        - bearer: []
+      summary: Create a model
+      tags:
+        - models
+  /models/sync-all:
+    post:
+      operationId: ModelsController_syncAll
+      parameters: []
+      responses:
+        '200':
+          description: Sync results
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: Sync models from all active providers
+      tags:
+        - models
+  /models/{id}:
+    get:
+      operationId: ModelsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model detail
+        '401':
+          description: Unauthorized
+        '404':
+          description: Model not found
+      security:
+        - bearer: []
+      summary: Get a single model with cost information
+      tags:
+        - models
+    patch:
+      operationId: ModelsController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelDto'
+      responses:
+        '200':
+          description: Model updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Model not found
+      security:
+        - bearer: []
+      summary: Update a model
+      tags:
+        - models
+    delete:
+      operationId: ModelsController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Model deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Model not found
+      security:
+        - bearer: []
+      summary: Delete a model
+      tags:
+        - models
+  /models/{id}/cost:
+    get:
+      operationId: ModelsController_findCost
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model cost
+        '401':
+          description: Unauthorized
+        '404':
+          description: Model not found
+      security:
+        - bearer: []
+      summary: Get cost information for a model
+      tags:
+        - models
+    patch:
+      operationId: ModelsController_upsertCost
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCostDto'
+      responses:
+        '200':
+          description: Cost updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Model not found
+      security:
+        - bearer: []
+      summary: Upsert cost information for a model
+      tags:
+        - models
+  /providers:
+    get:
+      operationId: ProvidersController_findAll
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: search
+          required: false
+          in: query
+          schema:
+            example: john
+            type: string
+        - name: family
+          required: false
+          in: query
+          schema:
+            enum:
+              - CODEX
+              - OPENAI_COMPATIBLE
+              - KIRO
+              - COPILOT
+            type: string
+        - name: isActive
+          required: false
+          in: query
+          schema:
+            example: true
+            type: boolean
+        - name: type
+          required: false
+          in: query
+          schema:
+            enum:
+              - MAIN
+              - BACKUP
+            type: string
+      responses:
+        '200':
+          description: Paginated provider list
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: List all providers for admin management
+      tags:
+        - providers
+    post:
+      operationId: ProvidersController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProviderDto'
+      responses:
+        '201':
+          description: Provider created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '409':
+          description: Provider already exists
+      security:
+        - bearer: []
+      summary: Create a provider
+      tags:
+        - providers
+  /providers/{id}:
+    get:
+      operationId: ProvidersController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provider detail
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Get a single provider
+      tags:
+        - providers
+    patch:
+      operationId: ProvidersController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProviderDto'
+      responses:
+        '200':
+          description: Provider updated
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+        '409':
+          description: Provider already exists
+      security:
+        - bearer: []
+      summary: Update a provider
+      tags:
+        - providers
+    delete:
+      operationId: ProvidersController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Provider deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Delete a provider
+      tags:
+        - providers
+  /providers/{id}/reset-success-rate:
+    post:
+      operationId: ProvidersController_resetSuccessRate
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Circuit breaker reset requested
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Reset circuit breaker for a provider
+      tags:
+        - providers
+  /providers/{id}/start-auth:
+    post:
+      operationId: ProvidersController_startAuth
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auth flow initiated
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Initiate provider authentication flow
+      tags:
+        - providers
+  /providers/{id}/poll:
+    post:
+      operationId: ProvidersController_pollAuth
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollAuthDto'
+      responses:
+        '200':
+          description: Poll result
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Poll device flow authentication status
+      tags:
+        - providers
+  /providers/{id}/token:
+    post:
+      operationId: ProvidersController_submitToken
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token submitted, provider activated
+        '400':
+          description: Invalid token or missing fields
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Submit authentication token
+      tags:
+        - providers
+  /providers/{id}/refresh-token:
+    post:
+      operationId: ProvidersController_refreshToken
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token refresh result
+        '400':
+          description: Permanent failure — provider deactivated
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+        '502':
+          description: Upstream error (transient)
+      security:
+        - bearer: []
+      summary: Force refresh provider access token
+      tags:
+        - providers
+  /providers/{id}/sync-models:
+    post:
+      operationId: ProvidersController_syncModels
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync result
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+        '502':
+          description: Upstream error
+      security:
+        - bearer: []
+      summary: Sync models from upstream provider
+      tags:
+        - providers
+  /providers/{id}/quota:
+    get:
+      operationId: ProvidersController_getQuota
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quota status
+        '401':
+          description: Unauthorized
+        '404':
+          description: Provider not found
+      security:
+        - bearer: []
+      summary: Get provider quota and rate limit status
+      tags:
+        - providers
+  /model-aliases:
+    get:
+      operationId: ModelAliasesController_findAll
+      parameters: []
+      responses:
+        '200':
+          description: Model alias list
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: List all model aliases with provider and model info
+      tags:
+        - model-aliases
+    post:
+      operationId: ModelAliasesController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelAliasDto'
+      responses:
+        '201':
+          description: Model alias created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Referenced model or provider not found
+        '409':
+          description: Model alias already exists
+      security:
+        - bearer: []
+      summary: Create a model alias
+      tags:
+        - model-aliases
+  /model-aliases/{id}:
+    delete:
+      operationId: ModelAliasesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Model alias deleted
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: Delete a model alias
+      tags:
+        - model-aliases
+  /api/orgs/{slug}/members:
+    get:
+      operationId: MembersController_listMembers
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated members list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      security:
+        - bearer: []
+      summary: List organization members
+      tags:
+        - Members
+  /api/orgs/{slug}/members/{id}:
+    patch:
+      operationId: MembersController_updateMemberRole
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberRoleDto'
+      responses:
+        '200':
+          description: Member role updated
+        '400':
+          description: Validation error or last manager
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Member not found
+      security:
+        - bearer: []
+      summary: Update member role
+      tags:
+        - Members
+    delete:
+      operationId: MembersController_removeMember
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Member removed
+        '400':
+          description: Self-removal or last manager
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Member not found
+      security:
+        - bearer: []
+      summary: Remove a member from the organization
+      tags:
+        - Members
+  /api/orgs/{slug}/management-keys:
+    get:
+      operationId: ManagementKeysController_listManagementKeys
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated management keys list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: List management keys for the organization
+      tags:
+        - Management Keys
+    post:
+      operationId: ManagementKeysController_createManagementKey
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateManagementKeyDto'
+      responses:
+        '201':
+          description: Management key created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Create a management key for the organization
+      tags:
+        - Management Keys
+  /api/orgs/{slug}/management-keys/{id}:
+    delete:
+      operationId: ManagementKeysController_revokeManagementKey
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Management key revoked
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Management key not found
+      security:
+        - bearer: []
+      summary: Revoke a management key
+      tags:
+        - Management Keys
+  /api/admin/keys:
+    get:
+      operationId: AdminKeysController_listAdminKeys
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+      responses:
+        '200':
+          description: Paginated admin keys list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: List admin management keys
+      tags:
+        - Admin Keys
+    post:
+      operationId: AdminKeysController_createAdminKey
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateManagementKeyDto'
+      responses:
+        '201':
+          description: Admin key created
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: Create an admin management key
+      tags:
+        - Admin Keys
+  /api/admin/keys/{id}:
+    delete:
+      operationId: AdminKeysController_revokeAdminKey
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Admin key revoked
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Admin key not found
+      security:
+        - bearer: []
+      summary: Revoke an admin management key
+      tags:
+        - Admin Keys
+  /api/orgs/{slug}/audit-logs:
+    get:
+      operationId: AuditLogsController_listAuditLogs
+      parameters:
+        - name: cursor
+          required: false
+          in: query
+          schema:
+            example: eyJpZCI6IjEyMyJ9
+            type: string
+        - name: limit
+          required: false
+          in: query
+          schema:
+            example: '20'
+            type: string
+        - name: from
+          required: false
+          in: query
+          schema:
+            example: '2026-03-01T00:00:00.000Z'
+            type: string
+        - name: to
+          required: false
+          in: query
+          schema:
+            example: '2026-03-31T23:59:59.999Z'
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated audit logs list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: List organization audit logs
+      tags:
+        - Audit Logs
+  /api/orgs/{slug}/domains:
+    post:
+      operationId: DomainsController_register
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDomainDto'
+      responses:
+        '201':
+          description: Domain registered
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '409':
+          description: Hostname unavailable
+      security:
+        - bearer: []
+      summary: Register a custom domain
+      tags:
+        - Domains
+    get:
+      operationId: DomainsController_list
+      parameters:
+        - name: status
+          required: false
+          in: query
+          description: Filter by hostname status
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Domain list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+      security:
+        - bearer: []
+      summary: List custom domains
+      tags:
+        - Domains
+  /api/orgs/{slug}/domains/{id}:
+    get:
+      operationId: DomainsController_detail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Domain details
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Domain not found
+      security:
+        - bearer: []
+      summary: Get domain details
+      tags:
+        - Domains
+    delete:
+      operationId: DomainsController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Domain deleted
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Domain not found
+      security:
+        - bearer: []
+      summary: Delete a custom domain
+      tags:
+        - Domains
+  /api/orgs/{slug}/domains/{id}/refresh:
+    post:
+      operationId: DomainsController_refresh
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Domain status refreshed
+        '401':
+          description: Unauthorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Domain not found
+      security:
+        - bearer: []
+      summary: Refresh domain verification status
+      tags:
+        - Domains
+  /api/orgs/{slug}/sso:
+    post:
+      operationId: SsoController_create
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSsoConnectionDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SsoConnectionResponseDto'
+      security:
+        - bearer: []
+      summary: Create an SSO connection for the organization
+      tags:
+        - SSO
+    get:
+      operationId: SsoController_findAll
+      parameters:
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SsoConnectionResponseDto'
+      security:
+        - bearer: []
+      summary: List SSO connections for the organization
+      tags:
+        - SSO
+  /api/orgs/{slug}/sso/{id}:
+    get:
+      operationId: SsoController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SsoConnectionResponseDto'
+      security:
+        - bearer: []
+      summary: Get an SSO connection by id
+      tags:
+        - SSO
+    patch:
+      operationId: SsoController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSsoConnectionDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SsoConnectionResponseDto'
+      security:
+        - bearer: []
+      summary: Update an SSO connection
+      tags:
+        - SSO
+    delete:
+      operationId: SsoController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: slug
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: SSO connection deleted
+      security:
+        - bearer: []
+      summary: Delete an SSO connection
+      tags:
+        - SSO
+  /sso/lookup:
+    get:
+      operationId: SsoLookupController_lookupByDomain
+      parameters:
+        - name: domain
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SsoLookupResponseDto'
+        '404':
+          description: No active SSO connection for this domain
+      summary: Look up SSO provider by domain (public)
+      tags:
+        - SSO
+  /api/auth/oidc/login:
+    get:
+      operationId: SsoAuthController_oidcLogin
+      parameters:
+        - name: domain
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to IdP
+        '404':
+          description: No SSO connection for domain
+      summary: Initiate OIDC SSO login by domain
+      tags:
+        - SSO Auth
+  /api/auth/oidc/callback:
+    get:
+      operationId: SsoAuthController_oidcCallback
+      parameters:
+        - name: code
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: state
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to dashboard with token
+        '400':
+          description: OIDC validation failed
+      summary: OIDC Authorization Code callback
+      tags:
+        - SSO Auth
+  /integration/opencode/setup.sh:
+    get:
+      operationId: OpenCodeController_getSetupScript
+      parameters: []
+      responses:
+        '200':
+          description: ''
+      tags:
+        - OpenCode
+  /integration/opencode/config:
+    get:
+      operationId: OpenCodeController_getConfig
+      parameters: []
+      responses:
+        '200':
+          description: ''
+      tags:
+        - OpenCode
+info:
+  title: Relay Dashboard API
+  description: API documentation for Relay Dashboard
+  version: '1.0'
+  contact: {}
+tags: []
+servers: []
+components:
+  securitySchemes:
+    bearer:
+      scheme: bearer
+      bearerFormat: JWT
+      type: http
+  schemas:
+    RegisterDto:
+      type: object
+      properties:
+        token:
+          type: string
+          example: invite-token-here
+        name:
+          type: string
+          example: John Doe
+        password:
+          type: string
+          example: securepass123
+      required:
+        - token
+        - name
+    LoginDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: user@example.com
+        password:
+          type: string
+          example: securepass123
+      required:
+        - email
+        - password
+    CompleteTwoFactorDto:
+      type: object
+      properties:
+        challengeToken:
+          type: string
+          description: Challenge token from initial login
+        code:
+          type: string
+          description: Two-factor verification code
+      required:
+        - challengeToken
+        - code
+    TwoFactorChallengeDto:
+      type: object
+      properties:
+        challengeToken:
+          type: string
+          description: Challenge token from initial login
+      required:
+        - challengeToken
+    ChangePasswordDto:
+      type: object
+      properties:
+        changePasswordToken:
+          type: string
+          description: Password change token from login
+        newPassword:
+          type: string
+          description: New password
+          minLength: 8
+      required:
+        - changePasswordToken
+        - newPassword
+    VerifyTotpDto:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 6-digit TOTP code from authenticator app
+      required:
+        - code
+    VerifyRecoveryDto:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Recovery code issued for two-factor authentication fallback
+          example: a1b2c3d4
+      required:
+        - code
+    VerifyEmailCodeDto:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 6-digit email verification code
+      required:
+        - code
+    UpdateTwoFactorSettingsDto:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        preferredMethod:
+          type: string
+          enum:
+            - TOTP
+            - EMAIL
+            - WEBAUTHN
+    CreditOperationDto:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Credit amount
+        type:
+          type: string
+          enum:
+            - TOP_UP
+            - ADJUSTMENT
+            - REFUND
+          default: TOP_UP
+        description:
+          type: string
+          description: Reason for credit operation
+        referenceId:
+          type: string
+      required:
+        - amount
+        - description
+    RecordPaymentDto:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Payment amount
+        description:
+          type: string
+          description: Payment description
+      required:
+        - amount
+    VoidPaymentDto:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Reason for voiding the payment
+      required:
+        - reason
+    CreateProxyDto:
+      type: object
+      properties:
+        url:
+          type: string
+          example: https://proxy.example.com
+        label:
+          type: string
+          example: US West
+        region:
+          type: string
+          example: us-west-2
+        weight:
+          type: number
+          example: 1
+        maxConnections:
+          type: number
+          example: 100
+      required:
+        - url
+    UpdateProxyDto:
+      type: object
+      properties:
+        url:
+          type: string
+          example: https://proxy.example.com
+        label:
+          type: object
+          nullable: true
+          example: US West
+        isActive:
+          type: boolean
+          example: true
+        region:
+          type: object
+          nullable: true
+          example: us-west-2
+        weight:
+          type: number
+          example: 1
+        maxConnections:
+          type: object
+          nullable: true
+          example: 100
+    ProxyReassignmentDto:
+      type: object
+      properties:
+        providerId:
+          type: string
+          example: provider-uuid
+        target:
+          type: string
+          example: auto
+          description: '"auto" | "none" | "{proxyId}"'
+      required:
+        - providerId
+        - target
+    DeleteProxyDto:
+      type: object
+      properties:
+        reassignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyReassignmentDto'
+    UpdateSettingsDto:
+      type: object
+      properties:
+        twoFactorRequired:
+          type: boolean
+    UpdateHealthMonitorSettingsDto:
+      type: object
+      properties:
+        windowSize:
+          type: number
+        threshold:
+          type: number
+        minSampleSize:
+          type: number
+        cooldownMs:
+          type: number
+        probeCount:
+          type: number
+        notificationCooldownMs:
+          type: number
+    AdminStatsDto:
+      type: object
+      properties:
+        totalUsers:
+          type: number
+          example: 1000
+        totalOrgs:
+          type: number
+          example: 200
+        totalProjects:
+          type: number
+          example: 500
+        totalApiRequests:
+          type: number
+          example: 1000000
+        totalTokensConsumed:
+          type: number
+          example: 5000000
+      required:
+        - totalUsers
+        - totalOrgs
+        - totalProjects
+        - totalApiRequests
+        - totalTokensConsumed
+    CreateInviteDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: user@example.com
+        role:
+          type: string
+          example: MEMBER
+          enum:
+            - MANAGER
+            - MEMBER
+      required:
+        - email
+        - role
+    OrgListItemDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: org_123
+        name:
+          type: string
+          example: Acme Corp
+        slug:
+          type: string
+          example: acme-corp
+        role:
+          type: string
+          example: MANAGER
+        creditBalance:
+          type: number
+          example: 450
+        isActive:
+          type: boolean
+          example: true
+      required:
+        - id
+        - name
+        - slug
+        - role
+        - creditBalance
+        - isActive
+    CreateOrgDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Acme Corp
+      required:
+        - name
+    OrgDetailDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: org_123
+        name:
+          type: string
+          example: Acme Corp
+        slug:
+          type: string
+          example: acme-corp
+        creditBalance:
+          type: number
+          example: 450
+        killSwitchActive:
+          type: boolean
+          example: false
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          format: date-time
+          type: string
+          example: '2026-03-15T00:00:00.000Z'
+      required:
+        - id
+        - name
+        - slug
+        - creditBalance
+        - killSwitchActive
+        - isActive
+        - createdAt
+    BackupNotificationItemDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: notification_123
+        sentAt:
+          format: date-time
+          type: string
+          example: '2026-03-17T12:00:00.000Z'
+        triggeredByProviderId:
+          type: object
+          example: provider_123
+          nullable: true
+      required:
+        - id
+        - sentAt
+        - triggeredByProviderId
+    BackupNotificationListResponseDto:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupNotificationItemDto'
+        nextCursor:
+          type: object
+          example: notification_122
+          nullable: true
+      required:
+        - data
+        - nextCursor
+    UpdateSmtpSettingsDto:
+      type: object
+      properties:
+        smtpHost:
+          type: object
+          nullable: true
+        smtpPort:
+          type: object
+          nullable: true
+        smtpUser:
+          type: object
+          nullable: true
+        smtpPass:
+          type: object
+          nullable: true
+        smtpFrom:
+          type: object
+          nullable: true
+    CreateApiKeyDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - MEMBER
+            - SERVICE
+          default: MEMBER
+        label:
+          type: string
+          description: Human-readable label for the API key (e.g. "Management Key")
+          example: Management Key
+    UpdateApiKeyDto:
+      type: object
+      properties:
+        label:
+          type: object
+          nullable: true
+          description: Human-readable label for the API key
+          example: Management Key
+        isActive:
+          type: boolean
+          description: Whether the API key is active
+    CreateProjectDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Production
+        slug:
+          type: string
+          example: production
+      required:
+        - name
+        - slug
+    UpdateProjectDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Production
+        isActive:
+          type: boolean
+          example: true
+    UpdateCostDto:
+      type: object
+      properties:
+        inputPricePer1M:
+          type: string
+          example: '3.00'
+        outputPricePer1M:
+          type: string
+          example: '15.00'
+        inputPricePer1M_200k:
+          type: object
+          nullable: true
+          example: '3.00'
+        outputPricePer1M_200k:
+          type: object
+          nullable: true
+          example: '15.00'
+    CreateModelDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: claude-sonnet-4-20250514
+        name:
+          type: string
+          example: Claude Sonnet 4
+        maxInputTokens:
+          type: number
+          example: 200000
+        maxOutputTokens:
+          type: number
+          example: 8192
+        family:
+          type: string
+          enum:
+            - CLAUDE
+            - GPT
+            - GEMINI
+            - OTHERS
+        isActive:
+          type: boolean
+          example: true
+      required:
+        - id
+        - name
+    UpdateModelDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Claude Sonnet 4
+        maxInputTokens:
+          type: object
+          example: 200000
+          nullable: true
+        maxOutputTokens:
+          type: object
+          example: 8192
+          nullable: true
+        family:
+          type: string
+          enum:
+            - CLAUDE
+            - GPT
+            - GEMINI
+            - OTHERS
+        isActive:
+          type: boolean
+          example: true
+    CreateProviderDto:
+      type: object
+      properties:
+        family:
+          type: string
+          example: CODEX
+          enum:
+            - CODEX
+            - OPENAI_COMPATIBLE
+            - KIRO
+            - COPILOT
+        type:
+          type: string
+          example: MAIN
+          enum:
+            - MAIN
+            - BACKUP
+        priority:
+          type: number
+          example: 1
+        label:
+          type: string
+          example: My Provider
+        tokens:
+          type: object
+          example:
+            apiKey: sk-...
+        supportsVision:
+          type: boolean
+          example: false
+        proxyAssignment:
+          type: string
+          example: auto
+          description: >-
+            Proxy assignment strategy: "auto" (best proxy), "none" (direct), or
+            a specific proxy ID
+        validFrom:
+          format: date-time
+          type: string
+          example: '2026-01-01T00:00:00.000Z'
+        validUntil:
+          format: date-time
+          type: string
+          example: '2027-01-01T00:00:00.000Z'
+      required:
+        - family
+    UpdateProviderDto:
+      type: object
+      properties:
+        type:
+          type: string
+          example: MAIN
+          enum:
+            - MAIN
+            - BACKUP
+        priority:
+          type: object
+          example: 1
+          nullable: true
+        label:
+          type: object
+          example: My Provider
+          nullable: true
+        tokens:
+          type: object
+          example:
+            apiKey: sk-...
+        supportsVision:
+          type: boolean
+          example: false
+        proxyId:
+          type: object
+          example: proxy-uuid
+          nullable: true
+        validFrom:
+          type: object
+          example: '2026-01-01T00:00:00.000Z'
+          nullable: true
+        validUntil:
+          type: object
+          example: '2027-01-01T00:00:00.000Z'
+          nullable: true
+        isActive:
+          type: boolean
+          example: true
+        deactivationReason:
+          type: string
+          example: MANUAL
+          enum:
+            - MANUAL
+            - AUTH_FAILURE
+            - RATE_LIMITED
+          nullable: true
+    PollAuthDto:
+      type: object
+      properties:
+        deviceCode:
+          type: string
+          example: abc123
+          description: Device code from startAuth
+        userCode:
+          type: string
+          example: ABCD-1234
+          description: User code (required for Codex device flow)
+      required:
+        - deviceCode
+    CreateModelAliasDto:
+      type: object
+      properties:
+        modelId:
+          type: string
+          example: claude-sonnet-4-20250514
+        providerId:
+          type: string
+          example: 2d66db6e-6db4-4de4-9180-f4c2f9d615f8
+        alias:
+          type: string
+          example: claude-3-7-sonnet-latest
+      required:
+        - modelId
+        - providerId
+        - alias
+    UpdateMemberRoleDto:
+      type: object
+      properties:
+        role:
+          type: string
+          enum:
+            - MANAGER
+            - MEMBER
+      required:
+        - role
+    CreateManagementKeyDto:
+      type: object
+      properties:
+        label:
+          type: string
+          example: Terraform Automation
+    CreateDomainDto:
+      type: object
+      properties:
+        hostname:
+          type: string
+          description: The custom hostname to register
+      required:
+        - hostname
+    CreateSsoConnectionDto:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: OKTA
+          enum:
+            - OKTA
+            - AZURE_AD
+        domain:
+          type: string
+          example: example.com
+        issuer:
+          type: string
+          example: https://dev-123.okta.com
+        clientId:
+          type: string
+          example: client_id_here
+        clientSecret:
+          type: string
+          example: client_secret_here
+      required:
+        - provider
+        - domain
+        - issuer
+        - clientId
+        - clientSecret
+    SsoConnectionResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: uuid-here
+        organizationId:
+          type: string
+          example: org-uuid-here
+        provider:
+          type: string
+          example: OKTA
+          enum:
+            - OKTA
+            - AZURE_AD
+        domain:
+          type: string
+          example: example.com
+        issuer:
+          type: string
+          example: https://dev-123.okta.com
+        clientId:
+          type: string
+          example: client_id_here
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          format: date-time
+          type: string
+          example: '2024-01-01T00:00:00.000Z'
+        updatedAt:
+          format: date-time
+          type: string
+          example: '2024-01-01T00:00:00.000Z'
+      required:
+        - id
+        - organizationId
+        - provider
+        - domain
+        - issuer
+        - clientId
+        - isActive
+        - createdAt
+        - updatedAt
+    UpdateSsoConnectionDto:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: OKTA
+          enum:
+            - OKTA
+            - AZURE_AD
+        domain:
+          type: string
+          example: example.com
+        issuer:
+          type: string
+          example: https://dev-123.okta.com
+        clientId:
+          type: string
+          example: client_id_here
+        clientSecret:
+          type: string
+          example: client_secret_here
+        isActive:
+          type: boolean
+          example: true
+    SsoLookupResponseDto:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: OKTA
+          enum:
+            - OKTA
+            - AZURE_AD
+        issuer:
+          type: string
+          example: https://dev-123.okta.com
+        clientId:
+          type: string
+          example: client_id_here
+        domain:
+          type: string
+          example: example.com
+      required:
+        - provider
+        - issuer
+        - clientId
+        - domain
+    ResponseDto:
+      type: object
+      properties:
+        status:
+          type: number
+          description: HTTP status code
+          example: 200
+        message:
+          type: string
+          description: Response message
+          example: OK
+        data:
+          type: object
+          description: Response payload
+          nullable: true
+        responseAt:
+          format: date-time
+          type: string
+          description: Response timestamp
+          example: '2025-04-19T12:00:00.000Z'
+      required:
+        - status
+        - message
+        - data
+        - responseAt

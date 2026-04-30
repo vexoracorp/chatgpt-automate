@@ -3,7 +3,7 @@
   "name": "Relay Codex Provider",
   "description": "Connect ChatGPT accounts to a Relay service as Codex providers. Automatically creates a CODEX provider on the relay and submits the account's codex token.",
   "version": "1.0.0",
-  "author": "vexora",
+  "author": "Relay",
   "settings_schema": {
     "type": "object",
     "properties": {

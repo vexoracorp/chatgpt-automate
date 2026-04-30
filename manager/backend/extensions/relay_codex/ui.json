@@ -29,9 +29,12 @@
   },
   "layout": [
     {
-      "type": "section",
+      "type": "modal",
       "id": "connect_section",
       "header": "계정 연결",
+      "triggerLabel": "계정 연결",
+      "triggerVariant": "primary",
+      "size": "medium",
       "components": [
         {
           "type": "multiselect",
@@ -48,8 +51,7 @@
           "id": "family",
           "label": "Family",
           "options": [
-            { "label": "CODEX", "value": "CODEX" },
-            { "label": "KIRO", "value": "KIRO" }
+            { "label": "CODEX", "value": "CODEX" }
           ],
           "defaultValue": "CODEX"
         },
@@ -111,7 +113,9 @@
             },
             "onSuccess": {
               "flash": { "type": "success", "content": "{{successCount}}개 워크플로우 생성됨" },
-              "clear": ["form.account_ids"]
+              "clear": ["form.account_ids"],
+              "closeModal": "connect_section",
+              "refresh": ["providers"]
             },
             "onError": {
               "flash": { "type": "error", "content": "{{successCount}}개 성공, {{errorCount}}개 실패" }
