@@ -27,7 +27,7 @@ import SharedAccountPage from "./pages/SharedAccountPage";
 import GlobalErrorBoundary from "./components/ErrorReport";
 
 function AuthenticatedRoutes() {
-  const { user, role, pendingUser, needs2FASetup, loading, sessionExpired } = useAuth();
+  const { user, role, pending2fa, needs2FASetup, loading, sessionExpired } = useAuth();
 
   if (loading) {
     return (
@@ -37,8 +37,8 @@ function AuthenticatedRoutes() {
     );
   }
 
-  if (!user && !pendingUser) return <LoginGate expired={sessionExpired} />;
-  if (!user && pendingUser) return <LoginGate expired={false} />;
+  if (!user && !pending2fa) return <LoginGate expired={sessionExpired} />;
+  if (!user && pending2fa) return <LoginGate expired={false} />;
   if (needs2FASetup) return <Setup2FAGate />;
 
   const isAdmin = role === "admin" || role === "owner";

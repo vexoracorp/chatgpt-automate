@@ -55,7 +55,7 @@ export default function Layout() {
   return (
     <>
       <TopNavigation
-        identity={{ href: "/", title: orgName }}
+        identity={{ href: "/", title: `${orgName} on ChatGPT Manager` }}
         utilities={[
           {
             type: "menu-dropdown",

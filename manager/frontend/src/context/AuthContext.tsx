@@ -9,7 +9,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   role: string;
-  pendingUser: User | null;
+  pending2fa: boolean;
   needs2FASetup: boolean;
   loading: boolean;
   sessionExpired: boolean;
@@ -23,7 +23,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   role: "user",
-  pendingUser: null,
+  pending2fa: false,
   needs2FASetup: false,
   loading: true,
   sessionExpired: false,
@@ -42,7 +42,7 @@ const API_BASE = "http://localhost:8000/api";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [pendingUser, setPendingUser] = useState<User | null>(null);
+  const [pending2faSession, setPending2faSession] = useState<string | null>(null);
   const [needs2FASetup, setNeeds2FASetup] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setCurrentUser(null);
         setRole("user");
-        setPendingUser(null);
+        setPending2faSession(null);
         setNeeds2FASetup(false);
         setSessionExpired(true);
       }
@@ -98,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(body.detail || "Invalid email or password");
     }
     const data = await res.json();
-    if (data.totp_enabled) {
-      setPendingUser(data.user);
+    if (data.status === "2fa_required" && data["2fa_session"]) {
+      setPending2faSession(data["2fa_session"]);
       return true;
     }
     if (data.token) setToken(data.token);
@@ -115,13 +115,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const verify2FA = useCallback(async (code: string) => {
-    if (!pendingUser) throw new Error("No pending login");
-    const data = await verify2FALogin(pendingUser.id, code);
+    if (!pending2faSession) throw new Error("No pending 2FA session");
+    const data = await verify2FALogin(pending2faSession, code);
     if (data.token) setToken(data.token);
-    setUser(pendingUser);
-    setCurrentUser(pendingUser);
-    setPendingUser(null);
-  }, [pendingUser]);
+    setPending2faSession(null);
+    const me = await authMe();
+    setUser(me.user);
+    setCurrentUser(me.user);
+    setRole(me.role);
+  }, [pending2faSession]);
 
   const complete2FASetup = useCallback(() => {
     setNeeds2FASetup(false);
@@ -132,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setCurrentUser(null);
     setRole("user");
-    setPendingUser(null);
+    setPending2faSession(null);
     setNeeds2FASetup(false);
     setSessionExpired(false);
   }, []);
@@ -142,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext value={{ user, role, pendingUser, needs2FASetup, loading, sessionExpired, login, verify2FA, complete2FASetup, logout, clearExpired }}>
+    <AuthContext value={{ user, role, pending2fa: !!pending2faSession, needs2FASetup, loading, sessionExpired, login, verify2FA, complete2FASetup, logout, clearExpired }}>
       {children}
     </AuthContext>
   );

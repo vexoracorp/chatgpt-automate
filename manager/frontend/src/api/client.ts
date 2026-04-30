@@ -754,6 +754,43 @@ export async function fetchSharedAccount(tokenId: string): Promise<Record<string
   return res.json();
 }
 
+export async function fetchSharedCodexUsage(tokenId: string, startDate: string, endDate: string): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  const res = await fetch(`${API_BASE}/shared/${tokenId}/codex-usage?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to fetch codex usage: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function refreshSharedAccount(tokenId: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/shared/${tokenId}/refresh`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Refresh failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchSharedMailboxMessages(tokenId: string): Promise<Array<Record<string, unknown>>> {
+  const res = await fetch(`${API_BASE}/shared/${tokenId}/mailbox/messages`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to fetch mailbox messages: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchSharedMailboxMessage(tokenId: string, mailId: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/shared/${tokenId}/mailbox/messages/${mailId}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to fetch mail: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function startCodexOAuth(data: {
   account_id: string;
   authorize_url: string;
@@ -944,7 +981,7 @@ export async function updateUser(id: string, data: { name?: string; email?: stri
   return res.json();
 }
 
-export async function getOwnerContact(): Promise<{ email: string }> {
+export async function getOwnerContact(): Promise<{ email: string; org_name: string }> {
   const res = await fetch(`${API_BASE}/owner-contact`);
   if (!res.ok) return { email: "" };
   return res.json();
@@ -997,13 +1034,16 @@ export async function disableTOTP(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to disable 2FA: ${res.status}`);
 }
 
-export async function verify2FALogin(userId: string, code: string): Promise<{ token: string }> {
+export async function verify2FALogin(sessionToken: string, code: string): Promise<{ token: string }> {
   const res = await fetch(`${API_BASE}/auth/verify-2fa`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId, code }),
+    body: JSON.stringify({ "2fa_session": sessionToken, code }),
   });
-  if (!res.ok) throw new Error(`Invalid 2FA code`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || "Invalid 2FA code");
+  }
   return res.json();
 }
 
