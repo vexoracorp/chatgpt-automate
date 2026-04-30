@@ -3,11 +3,12 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,29 @@ class ExtensionManifest:
     version: str = "0.0.1"
     author: str = ""
     settings_schema: dict[str, Any] = field(default_factory=dict)
+
+
+class Extension(ABC):
+    ext_id: str
+    prefix: str
+
+    def __init__(self) -> None:
+        self.router = APIRouter(prefix=self.prefix)
+        self.register_routes()
+
+    async def settings(self) -> dict[str, Any]:
+        from app.db import Extension as ExtensionDB
+
+        db_ext = await ExtensionDB.get_or_none(id=self.ext_id)
+        if not db_ext or not db_ext.settings:
+            return {}
+        return db_ext.settings
+
+    @abstractmethod
+    def register_routes(self) -> None: ...
+
+    def mount(self, app: FastAPI) -> None:
+        app.include_router(self.router)
 
 
 _loaded: dict[str, ExtensionManifest] = {}
@@ -63,8 +87,26 @@ def load_extension(app: FastAPI, ext_id: str) -> bool:
         return False
     try:
         module = importlib.import_module(f"extensions.{ext_id}")
-        if hasattr(module, "register"):
+
+        ext_cls = None
+        for attr in vars(module).values():
+            if (
+                isinstance(attr, type)
+                and issubclass(attr, Extension)
+                and attr is not Extension
+            ):
+                ext_cls = attr
+                break
+
+        if ext_cls is not None:
+            instance = ext_cls()
+            instance.mount(app)
+        elif hasattr(module, "register"):
             module.register(app)
+        else:
+            logger.error("Extension %s has no Extension subclass or register()", ext_id)
+            return False
+
         _loaded[ext_id] = next(
             (m for m in discover_extensions() if m.id == ext_id),
             ExtensionManifest(id=ext_id, name=ext_id),
