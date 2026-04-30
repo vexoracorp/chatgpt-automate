@@ -30,6 +30,50 @@ function duration(start: string, end: string | null): string {
   return `${min}m ${remSec}s`;
 }
 
+function OutputTab({ output }: { output: Record<string, unknown> }) {
+  const [showRaw, setShowRaw] = useState(false);
+  return (
+    <Container header={
+      <Header variant="h2" actions={
+        <SpaceBetween direction="horizontal" size="xs">
+          <Button onClick={() => navigator.clipboard.writeText(JSON.stringify(output, null, 2))} iconName="copy">Copy</Button>
+          <Button onClick={() => setShowRaw(!showRaw)}>{showRaw ? "Formatted" : "Raw JSON"}</Button>
+        </SpaceBetween>
+      }>Output</Header>
+    }>
+      {showRaw ? (
+        <pre style={{
+          background: "#f2f3f3",
+          border: "1px solid #d5dbdb",
+          borderRadius: 8,
+          padding: 16,
+          fontSize: 13,
+          overflow: "auto",
+          maxHeight: 500,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+          margin: 0,
+        }}>
+          {JSON.stringify(output, null, 2)}
+        </pre>
+      ) : (
+        <SpaceBetween size="m">
+          {Object.entries(output).map(([key, value]) => (
+            <div key={key}>
+              <Box variant="awsui-key-label">{key}</Box>
+              <div style={{ wordBreak: "break-all", marginTop: 2 }}>
+                <Box variant="code" fontSize="body-s">
+                  {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
+                </Box>
+              </div>
+            </div>
+          ))}
+        </SpaceBetween>
+      )}
+    </Container>
+  );
+}
+
 function ValueWithLabel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -346,16 +390,7 @@ export default function WorkflowRunDetailPage() {
             id: "output",
             label: "Output",
             content: (
-              <Container header={<Header variant="h2">Output</Header>}>
-                <SpaceBetween size="xs">
-                  {Object.entries(run.output).map(([key, value]) => (
-                    <div key={key} style={{ display: "flex", justifyContent: "space-between" }}>
-                      <Box color="text-body-secondary">{key}</Box>
-                      <Box fontWeight="bold">{typeof value === "object" ? JSON.stringify(value) : String(value)}</Box>
-                    </div>
-                  ))}
-                </SpaceBetween>
-              </Container>
+              <OutputTab output={run.output} />
             ),
           }] : []),
         ]}

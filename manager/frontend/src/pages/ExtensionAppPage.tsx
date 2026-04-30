@@ -52,6 +52,7 @@ interface ActionDef {
     flash?: FlashDef;
     refresh?: string[];
     clear?: string[];
+    closeModal?: string;
   };
   onError?: {
     flash?: FlashDef;
@@ -118,6 +119,9 @@ interface SectionDef {
   id: string;
   header: string;
   components: ComponentDef[];
+  triggerLabel?: string;
+  triggerVariant?: string;
+  size?: string;
 }
 
 interface PageDef {
@@ -205,6 +209,7 @@ export default function ExtensionAppPage() {
     actions?: Array<{ id: string; label: string; variant?: string; method: string; url: string }>;
   }>({ visible: false, loading: false, data: null, url: "", itemsPath: "$.data" });
   const [detailActionLoading, setDetailActionLoading] = useState<Record<string, boolean>>({});
+  const [modalSectionVisible, setModalSectionVisible] = useState<Record<string, boolean>>({});
 
   const schemaRef = useRef<UISchema | null>(null);
 
@@ -431,6 +436,9 @@ export default function ExtensionAppPage() {
           }
           if (handler.refresh) refreshDataSources(handler.refresh);
           if ("clear" in handler && handler.clear) clearFormFields(handler.clear as string[]);
+          if ("closeModal" in handler && handler.closeModal) {
+            setModalSectionVisible((prev) => ({ ...prev, [handler.closeModal as string]: false }));
+          }
         }
       }
     } catch (e) {
@@ -689,7 +697,16 @@ export default function ExtensionAppPage() {
           });
         }
 
-        return (
+        if (comp.rowClick) {
+          columnDefs.push({
+            id: "__view",
+            header: "",
+            width: 60,
+            cell: () => (
+              <Button variant="inline-link" iconName="angle-right" />
+            ),
+          });
+        }        return (
           <Table
             key={comp.id}
             items={items as Record<string, unknown>[]}
@@ -792,6 +809,30 @@ export default function ExtensionAppPage() {
   };
 
   const renderSection = (section: SectionDef) => {
+    if (section.type === "modal") {
+      const visible = modalSectionVisible[section.id] ?? false;
+      return (
+        <div key={section.id}>
+          <Button
+            variant={section.triggerVariant === "primary" ? "primary" : "normal"}
+            onClick={() => setModalSectionVisible((prev) => ({ ...prev, [section.id]: true }))}
+          >
+            {section.triggerLabel ?? section.header}
+          </Button>
+          <Modal
+            visible={visible}
+            onDismiss={() => setModalSectionVisible((prev) => ({ ...prev, [section.id]: false }))}
+            size={(section.size as "small" | "medium" | "large" | "max") ?? "medium"}
+            header={<Header variant="h2">{section.header}</Header>}
+          >
+            <SpaceBetween size="l">
+              {section.components.map((comp) => renderComponent(comp))}
+            </SpaceBetween>
+          </Modal>
+        </div>
+      );
+    }
+
     const tableDs = sectionHasTable(section);
     return (
       <Container
@@ -845,14 +886,9 @@ export default function ExtensionAppPage() {
       <Header
         description={schema.page.description}
         actions={
-          <CloudscapeLink
-            href="/extensions"
-            onFollow={(e) => { e.preventDefault(); }}
-          >
-            <Link to="/extensions" style={{ textDecoration: "none", color: "inherit" }}>
-              ← Extensions
-            </Link>
-          </CloudscapeLink>
+          <Link to="/extensions" style={{ textDecoration: "none", color: "#0972d3", fontSize: 14 }}>
+            ← Extensions
+          </Link>
         }
       >
         {schema.page.title}
