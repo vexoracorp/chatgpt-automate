@@ -990,32 +990,37 @@ export default function AccountDetailPage() {
                     })()}
                   </SpaceBetween>
 
-                  <SpaceBetween size="xs">
-                    <Box variant="h3">Secure sign in with ChatGPT</Box>
-                    <Box color="text-body-secondary">Sign in to websites and apps across the internet with the trusted security of ChatGPT.</Box>
-                    <hr style={{ border: "none", borderTop: "1px solid var(--color-border-divider-default)", margin: "4px 0" }} />
+                  <Container
+                    header={
+                      <Header variant="h3" description="Sign in to websites and apps across the internet with the trusted security of ChatGPT.">
+                        Secure sign in with ChatGPT
+                      </Header>
+                    }
+                  >
                     {clientAppsError ? (
                       <Alert type="warning">{clientAppsError}</Alert>
                     ) : clientApps.length === 0 ? (
                       <Box color="text-status-inactive">No connected applications</Box>
                     ) : (
-                      clientApps.map((app) => (
-                        <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0" }}>
-                          <SpaceBetween size="xxs" direction="vertical">
-                            <Box fontWeight="bold">{app.name}</Box>
-                            <Box color="text-body-secondary" fontSize="body-s">Allow {app.name} to use models from the API.</Box>
-                          </SpaceBetween>
-                          <Button
-                            variant="normal"
-                            loading={disconnectingApp === app.id}
-                            onClick={() => setDisconnectConfirmApp({ id: app.id, name: app.name })}
-                          >
-                            <span style={{ color: "var(--color-text-status-error)" }}>Disconnect</span>
-                          </Button>
-                        </div>
-                      ))
+                      <SpaceBetween size="xs">
+                        {clientApps.map((app) => (
+                          <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--color-border-divider-default)" }}>
+                            <SpaceBetween size="xxs" direction="vertical">
+                              <Box fontWeight="bold">{app.name}</Box>
+                              <Box color="text-body-secondary" fontSize="body-s">Allow {app.name} to use models from the API.</Box>
+                            </SpaceBetween>
+                            <Button
+                              variant="normal"
+                              loading={disconnectingApp === app.id}
+                              onClick={() => setDisconnectConfirmApp({ id: app.id, name: app.name })}
+                            >
+                              <span style={{ color: "var(--color-text-status-error)" }}>Disconnect</span>
+                            </Button>
+                          </div>
+                        ))}
+                      </SpaceBetween>
                     )}
-                  </SpaceBetween>
+                  </Container>
 
                   {ageVerification?.show_age_verification_setting && (
                     <>

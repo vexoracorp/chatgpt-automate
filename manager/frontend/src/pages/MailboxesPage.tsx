@@ -284,6 +284,17 @@ export default function MailboxesPage() {
                 <Button onClick={load} iconName="refresh" loading={loading} />
                 {canWrite && <Button disabled={selected.length === 0} onClick={handleDelete}>Delete</Button>}
                 {canWrite && <Button onClick={() => { setError(""); setImportVisible(true); }}>Import</Button>}
+                <Button onClick={() => {
+                  const rows = mailboxes.map((m) => [m.email, m.status, m.assigned_account_id ?? "", m.created_at ?? ""].join(","));
+                  const csv = ["email,status,assigned_account_id,created_at", ...rows].join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `mailboxes-${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}>Export</Button>
                 {canWrite && <Button variant="primary" onClick={() => { resetAdd(); setAddVisible(true); }}>Add Mailbox</Button>}
               </SpaceBetween>
             }
