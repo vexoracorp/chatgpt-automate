@@ -27,10 +27,19 @@ function randomName(): string {
 }
 
 function randomPassword(): string {
-  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$";
-  let pw = "";
-  for (let i = 0; i < 16; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw;
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const special = "!@#$%^&*_+-=";
+  const all = lower + upper + digits + special;
+  const pick = (s: string) => s[Math.floor(Math.random() * s.length)];
+  const required = [pick(lower), pick(upper), pick(digits), pick(special)];
+  for (let i = required.length; i < 16; i++) required.push(pick(all));
+  for (let i = required.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [required[i], required[j]] = [required[j], required[i]];
+  }
+  return required.join("");
 }
 
 function randomBirthdate(): string {
